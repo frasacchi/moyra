@@ -1,6 +1,6 @@
 import sympy as sym
 from . import ExternalForce
-from ..helper_funcs import LineariseMatrix
+from ..helper_funcs import linearise_matrix
 import sympy.physics.mechanics as me
 
 class AeroForce(ExternalForce):
@@ -34,17 +34,17 @@ class AeroForce(ExternalForce):
         """
         ## force per unit length will following theredosons pseado-steady theory
 
-        if V is None:
-            V = p.V
         if c is None:
             c=p.c
 
         # add z velocity due to motion
-        BodyJacobian = cls._trigsimp(Transform.BodyJacobian(p.q))
+        BodyJacobian = sym.simplify(cls._trigsimp(Transform.BodyJacobian(p.q)))
 
         v_z_eff = (BodyJacobian*p.qd)[2]
         if z_inverted:
             v_z_eff *= -1
+        if V is None:
+            V = -(BodyJacobian*p.qd)[0]
         
         # combine to get effective AoA
         dAlpha = alpha_zero + rootAlpha - v_z_eff/V + w_g/V
@@ -91,8 +91,8 @@ class AeroForce(ExternalForce):
         return sym.trigsimp(sym.powsimp(sym.cancel(sym.expand(expr))))      
 
     def linearise(self,x,x_f):
-        Q_lin = LineariseMatrix(self.Q(),x,x_f)
-        dAlpha_lin = LineariseMatrix(self.dAlpha,x,x_f)
+        Q_lin = linearise_matrix(self.Q(),x,x_f)
+        dAlpha_lin = linearise_matrix(self.dAlpha,x,x_f)
         return AeroForce(Q_lin,dAlpha_lin)
     
     def subs(self,*args):

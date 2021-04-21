@@ -1,7 +1,7 @@
 import sympy as sym
 import sympy.physics.mechanics as me
 from inspect import getsource
-from ..helper_funcs import LineariseMatrix
+from ..helper_funcs import linearise_matrix
 
 
 class ExternalForce:
@@ -31,7 +31,7 @@ class ExternalForce:
         return ExternalForce(self._Q.integrate(*args))
 
     def linearise(self,x,x_f):
-        return ExternalForce(LineariseMatrix(self.Q(),x,x_f))
+        return ExternalForce(linearise_matrix(self.Q(),x,x_f))
 
     def lambdify(self,params):
         if self._Q is None:

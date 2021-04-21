@@ -4,10 +4,34 @@ from ..helper_funcs import LineariseMatrix
 import sympy.physics.mechanics as me
 
 class AeroForce(ExternalForce):
+    """A Class used to represent aerodynamic forces"""
     @classmethod
-    def PerUnitSpan(cls,FwtParams,Transform,C_L,alphadot,M_thetadot,e,rootAlpha,alpha_zero = 0,stall_angle=0.24,c_d_max = 1,w_g = 0,V=None,c=None,linear=False):
+    def PerUnitSpan(cls,p,Transform,C_L,alphadot,M_thetadot,e,rootAlpha,alpha_zero = 0,stall_angle=0.24,c_d_max = 1,w_g = 0,V=None,c=None,linear=False,z_inverted=False):
+        """ A static method to create an aerodynamic force per unit span
 
-        p = FwtParams
+        ...
+        Parameters
+        ----------
+        p - an instance of a 'ModelParameters' class
+        Transform - an instance of a 'HomogenousTransform' class describing the coordinate system the force is applied in
+        C_L - the 2D lift curve slope
+        alphadot - unsteady aerodynamic coeffiecent (see Cooper & Wright)
+        M_thetadot - unsteady aerodynamic coeffiecent (see Cooper & Wright)
+        e - chord wing eccentrity
+        rootAlpha - root angle of attack of the element
+        alpha_zero - angle attack for zero lift (camber of aerofoil)
+        
+        Optional Parameters
+        -------------------
+
+        stall_angle - angle in radians at which the wing stalls, defining the lift curve slope. If zero assume linear (default = 0)
+        c_d_max - max coeefgficent of drag (default = 1)
+        w_g - gust velocity (default = 0)
+        V - onset wind velocity (default p.V)
+        c - chord (default p.c)
+        linear - if true normal force is a combination of lift and drag (default false)
+        z_inverted - if true lift acts in the oppiste direction to the z axis
+        """
         ## force per unit length will following theredosons pseado-steady theory
 
         if V is None:
@@ -19,6 +43,8 @@ class AeroForce(ExternalForce):
         BodyJacobian = cls._trigsimp(Transform.BodyJacobian(p.q))
 
         v_z_eff = (BodyJacobian*p.qd)[2]
+        if z_inverted:
+            v_z_eff *= -1
         
         # combine to get effective AoA
         dAlpha = alpha_zero + rootAlpha - v_z_eff/V + w_g/V
@@ -39,15 +65,18 @@ class AeroForce(ExternalForce):
         if linear:
             c_n = c_l
         else:
-            c_n = c_l*sym.cos(ang)-c_d*sym.sin(ang)
+            c_n = c_l*sym.cos(ang)+c_d*sym.sin(ang)
 
         F_n = dynamicPressure*c*c_n
 
         # Calulate the pitching Moment
         M_w = F_n*e*c # Moment due to lift
         M_w += dynamicPressure*c**2*(M_thetadot*alphadot*c/(sym.Integer(4)*V))
-
-        wrench = sym.Matrix([0,0,F_n,0,M_w,0])
+        
+        if z_inverted:
+            wrench = sym.Matrix([0,0,-F_n,0,M_w,0])
+        else:
+            wrench = sym.Matrix([0,0,F_n,0,M_w,0])
 
         _Q = BodyJacobian.T*wrench
 

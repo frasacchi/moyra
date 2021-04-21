@@ -3,8 +3,10 @@ import numpy as np
 from . import ExternalForce
 
 class CompositeForce(ExternalForce):
+    """A Class used to represent the combination of multiple ExternalForce objects"""
 
     def __init__(self,forces):
+        """constructor for composite force, where 'forces' is a enumerable of ExternalForce objects"""
         self.forces = forces
 
     def Q(self):

@@ -5,7 +5,7 @@ class ModelValue:
     """
     Base class to inject a value onto sympy classes
     """
-    def __init__(self,value,**kwarg):
+    def __init__(self,value=0,**kwarg):
         super().__init__(**kwarg)
         self.value = value
         self._dependent = False      

@@ -10,6 +10,28 @@ To install simply run
 ```
 pip install moyra
 ```
+## Build
+
+To build this package run the following command
+```
+python setup.py sdist bdist_wheel
+```
+the README.md can be updated from the jupyter notebook using the command
+```
+jupyter nbconvert --to markdown readme.ipynb   
+```
+
+## Local Development
+
+To install this pacakge locally clone in developer mode run either of the following commands
+
+```
+pip install -e <directory of the setup.py file>
+```
+```
+python <directory of the setup.py file>/setup.py develop
+```
+This will install the package locally but respond to local file changes.
 
 ## Examples
 Examples can be found in the examples folder in the github repository
@@ -63,7 +85,7 @@ p.x
 
 
 
-$\displaystyle \left[\begin{matrix}q_{0}\\\dot{q}_{0}\\q_{1}\\\dot{q}_{1}\end{matrix}\right]$
+$\displaystyle \left[\begin{matrix}\operatorname{q_{0}}{\left(t \right)}\\\frac{d}{d t} \operatorname{q_{0}}{\left(t \right)}\\\operatorname{q_{1}}{\left(t \right)}\\\frac{d}{d t} \operatorname{q_{1}}{\left(t \right)}\end{matrix}\right]$
 
 
 
@@ -187,11 +209,11 @@ vars(nm)
 
 
 
-    {'ExtForces': <function _lambdifygenerated(_Dummy_61, _Dummy_62, t)>,
-     'M': <function _lambdifygenerated(_Dummy_67, _Dummy_68)>,
-     'f': <function _lambdifygenerated(_Dummy_73, _Dummy_74)>,
-     'pe': <function _lambdifygenerated(_Dummy_79, _Dummy_80)>,
-     'ke': <function _lambdifygenerated(_Dummy_85, _Dummy_86)>}
+    {'ExtForces': <function _lambdifygenerated(_Dummy_44, _Dummy_45, t)>,
+     'M': <function _lambdifygenerated(_Dummy_50, _Dummy_51)>,
+     'f': <function _lambdifygenerated(_Dummy_56, _Dummy_57)>,
+     'pe': <function _lambdifygenerated(_Dummy_62, _Dummy_63)>,
+     'ke': <function _lambdifygenerated(_Dummy_68, _Dummy_69)>}
 
 
 

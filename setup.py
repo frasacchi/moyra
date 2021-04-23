@@ -8,7 +8,7 @@ setup(
     long_description_content_type="text/markdown",
     author='Fintan Healy',
     author_email = 'fintan.healy@bristol.ac.uk',
-    url='https://https://github.com/fh9g12/moyra',
+    url='https://github.com/fh9g12/moyra',
     license='MIT',
     install_requires=['sympy','numpy','scipy'],
     setup_requires=['pytest-runner'],

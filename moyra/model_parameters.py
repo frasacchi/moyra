@@ -10,12 +10,12 @@ class ModelValue:
         self.value = value
         self._dependent = False      
     
-    def __call__(self,t,x):
-        return self._GetValue(t,x)
+    def __call__(self,x,t):
+        return self._GetValue(x,t)
 
-    def _GetValue(self,t,x):
+    def _GetValue(self,x,t):
         if callable(self.value):
-            return self.value(t,x)
+            return self.value(x,t)
         else:
             return self.value
 
@@ -35,15 +35,28 @@ class ModelSymbol(sym.Symbol,ModelValue):
             return other.name == self.name
     def __hash__(self):
         return hash(sym.Symbol(self.name))
-    
+    def _octave(self,printer):
+        return f'p.{self.name}'
+
+class ModelMatrixSymbol(ModelSymbol):
+    def __init__(self,string,**kwarg):
+        self._index = int(string.split('_')[-1])
+        self._matrix = '_'.join(string.split('_')[0:-1])
+        super().__init__(string,**kwarg)
+    def __new__(cls,string,**kwarg):
+        return super().__new__(cls,string,**kwarg)
+    def _octave(self,printer):
+        return f'p.{self._matrix}({self._index+1})'
+
 class ModelMatrix(sym.Matrix,ModelValue):
     """
     Wrapper for Sympy Matrix, to inject it with a value attribute
     """
-    def __init__(self,symbols,**kwarg):
+    def __init__(self,string,length,**kwarg):
         super().__init__(**kwarg)
-    def __new__(cls,symbols,**kwargs):
-        return super().__new__(cls,symbols)
+        self._matrix_symbol = string
+    def __new__(cls,string,length,**kwargs):
+        return super().__new__(cls,sym.symbols(f'{string}_:{length}',cls=ModelMatrixSymbol))
     def __setattr__(self,name,value):
         if name == "value":
             if value is not None:
@@ -67,26 +80,7 @@ class ModelExpr(sym.Symbol,ModelValue):
 
     def GetSub(self,t,x):
         return self.value
-    
-
-class ModelParameters:
-
-    @classmethod
-    def DynamicModel(cls,DoFs):
-        model = cls()
-
-        model.qs = DoFs
-        model.q = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}'))
-        model.qd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',1))
-        model.qdd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',2))
-
-        # create state matrix
-        x_ls = []
-        for i in range(0,DoFs):
-            x_ls.append(model.q[i])
-            x_ls.append(model.qd[i])
-        model.x = sym.Matrix(x_ls)
-        return model      
+class ModelParameters:    
     
     def GetTuple(self,ignore=[]):
         return tuple(var for name,var in vars(self).items() if isinstance(var,ModelValue) and name not in ignore and var not in ignore)
@@ -114,6 +108,22 @@ class ModelParameters:
         return tot_sub_dict#{sym.Symbol(k.name):v for k,v in tot_sub_dict.items()}
     
     def GetNumericTuple(self,x,t,ignore=[]):
-        return tuple(var(t,x) for name,var in vars(self).items() if isinstance(var,ModelValue) and name not in ignore and var not in ignore)
+        return tuple(var(x,t) for name,var in vars(self).items() if isinstance(var,ModelValue) and name not in ignore and var not in ignore)
 
-    
+    def to_matlab_class(self,class_name = "Parameters",file_dir='', ignore=[]):
+        import os.path
+        # create a dict of all required params and values
+        params = {}
+        for name,var in vars(self).items():
+            if name not in ignore and var not in ignore:
+                if isinstance(var,ModelSymbol):
+                    params[var.name] = var.value
+                if isinstance(var,ModelMatrix):
+                    params[name] = var.value
+        # convert to matlab class string
+        classdef = classdef = f'classdef {class_name}'
+        params = '\n\t\t'.join([ f'{key} = {value}' for key,value in params.items()])
+        class_string = classdef + '\n\tproperties\n\t\t' + params + '\n\tend\nend'
+        # save to file
+        with open(os.path.join(file_dir,class_name + '.m'),'w') as file:
+            file.write(class_string)

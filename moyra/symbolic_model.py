@@ -1,3 +1,5 @@
+import re
+import pickle
 import sympy as sym
 import numpy as np
 from scipy.linalg import eig
@@ -7,6 +9,8 @@ from sympy.abc import x,y,t
 from .helper_funcs import linearise_matrix
 from .numeric_model import NumericModel
 import pickle
+from .forces import ZeroForce
+from .printing import model as print_model
 
 class SymbolicModel:
     """
@@ -61,8 +65,10 @@ class SymbolicModel:
         self.f = f
         self.T = T
         self.U = U
-
-        self.ExtForces = ExtForces
+        if ExtForces is None:
+            self.ExtForces = ZeroForce(f.shape[0])
+        else:
+            self.ExtForces = ExtForces
 
     def cancel(self):
         """
@@ -235,19 +241,19 @@ class SymbolicModel:
     def _jacobian(M,x):
         return sym.Matrix([[*M.diff(xi)] for xi in x]).T
 
-    def to_file(self,filename):
+    def to_file(self,p,filename):
         #Get string represtations
-        M_code = "def get_M():\n\t"+sym.printing.python(self.M).replace('\n','\n\t')+"\n\treturn e\n"
-        f_code = "def get_f():\n\t"+sym.printing.python(self.f).replace('\n','\n\t')+"\n\treturn e\n"
-        T_code = "def get_T():\n\t"+sym.printing.python(self.T).replace('\n','\n\t')+"\n\treturn e\n"
-        U_code = "def get_U():\n\t"+sym.printing.python(self.U).replace('\n','\n\t')+"\n\treturn e\n"
-
+        M_code = "def get_M(p):\n\t"+print_model(self.M,p).replace('\n','\n\t')+"\n\treturn e\n"
+        f_code = "def get_f(p):\n\t"+print_model(self.f,p).replace('\n','\n\t')+"\n\treturn e\n"
+        T_code = "def get_T(p):\n\t"+print_model(self.T,p).replace('\n','\n\t')+"\n\treturn e\n"
+        U_code = "def get_U(p):\n\t"+print_model(self.U,p).replace('\n','\n\t')+"\n\treturn e\n"
+        p_code = 'def get_p():\n\t'+p.print_python().replace('\n','\n\t')+"\n\treturn p\n"
         if self.ExtForces is not None:
-            Q_code = "def get_Q():\n\t"+sym.printing.python(self.ExtForces.Q()).replace('\n','\n\t')+"\n\treturn e\n"
+            Q_code = "def get_Q(p):\n\t"+print_model(self.ExtForces.Q(),p).replace('\n','\n\t')+"\n\treturn e\n"
         else:
-            Q_code = "def get_Q():\n\t"+"return ImmutableDenseMatrix([[0]"+",[0]"*(self.M.shape[0]-1)+"])\n"
+            Q_code = "def get_Q(p):\n\t"+"return ImmutableDenseMatrix([[0]"+",[0]"*(self.M.shape[0]-1)+"])\n"
         #Combine and add import statements
-        full_code = "from sympy import *\n"+M_code+f_code+T_code+U_code+Q_code
+        full_code = "from sympy import *\nimport moyra as ma\n\n"+M_code+f_code+T_code+U_code+Q_code+p_code
 
         # Save to the file
         t_file = open(filename,"w")
@@ -258,18 +264,44 @@ class SymbolicModel:
     @classmethod
     def from_file(cls,filename):
         import importlib.util
-        from .ExternalForces import ExternalForce
+        from .forces import ExternalForce
         spec = importlib.util.spec_from_file_location("my.Model", filename)
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-
-        M = m.get_M()
-        f = m.get_f()
-        T = m.get_T()
-        U = m.get_U()
-        _Q = m.get_Q()
+        p = m.get_p()
+        M = m.get_M(p)
+        f = m.get_f(p)
+        T = m.get_T(p)
+        U = m.get_U(p)
+        _Q = m.get_Q(p)
         ExtForce = ExternalForce(_Q)
-        return cls(M,f,T,U,ExtForce)
+        return (cls(M,f,T,U,ExtForce),p)
+    
+    def to_matlab_file(self,p,file_dir):
+        funcs = (('get_M',self.M),('get_f',self.f),('get_Q',self.ExtForces.Q()))
+        for func_name,matrix in funcs:
+            with open(file_dir+f"{func_name}.m",'w') as file:
+                file.write(self._gen_octave(matrix,p,func_name))
+        p.to_matlab_class(file_dir=file_dir)
+        
+    def _gen_octave(self,expr,p,func_name):
+        # convert states to non-time dependent variable
+        U = sym.Matrix(sym.symbols(f'u_:{p.qs*2}'))
+        l = dict(zip(p.x,U))
+        expr = me.msubs(expr,l)
+
+        # convert to octave string and covert states to vector form
+        out = sym.printing.octave.octave_code(expr)
+        my_replace = lambda x: f'U({int(x.group(1))+1})'
+        out = re.sub(r"u_(?P<index>\d+)",my_replace,out)
+
+        # make the file pretty...
+        out = out.replace(',',',...\n\t\t').replace(';',';...\n\t\t')
+
+        # wrap output in octave function signature
+        signature = f'function out = {func_name}(U,p)'
+        octave_string = signature + '\n\t'+ 'out = ' + out + ';\nend'
+        return octave_string
 
 
 

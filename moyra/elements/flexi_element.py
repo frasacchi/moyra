@@ -58,13 +58,35 @@ class FlexiElement(BaseElement):
         dmg = point_z*self.M_e[0,0]*p.g
         return dmg.integrate(self.x_integral,self.y_integral)
 
-    def cal_pe(self,p):
+    def calc_pe(self,p):
         PE = self.calc_elastic_pe(p)
         PE += self.calc_grav_pe(p) if self._gravityPotential else sym.Integer(0)
         return PE
 
     def calc_rdf(self,p):
         return 0
+
+    @staticmethod
+    def ShapeFunctions_BN_TM(n,m,q,y_s,x,x_f,alpha_r,factor = 1):
+        # check q is the length of n+m
+        if n+m != len(q):
+            raise ValueError('the sum of n+m must be the same as a length of q')
+
+        # make factor a list the size of n+m
+        if isinstance(factor,int) | isinstance(factor,float):
+            factor = [factor]*(n+m)
+        z = sym.Integer(0)
+        tau = alpha_r
+
+        for i in range(0,n):
+            z = z + q[i]*y_s**(2+i)*factor[i]
+        for i in range(0,m):
+            qi = i+n
+            tau = tau + q[qi]*y_s**(i+1)*factor[n+i]
+        
+        z -= tau*(x-x_f)
+
+        return z, tau
 
 
 

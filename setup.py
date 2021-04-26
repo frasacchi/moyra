@@ -1,8 +1,8 @@
 from setuptools import find_packages, setup
 setup(
     name='moyra',
-    packages=find_packages(include=['moyra']),
-    version='0.1.4.0',
+    packages=find_packages(include=['moyra','moyra.*']),
+    version='0.1.4.1',
     description='Generate Multi-body Symbolic and Numeric Equations of Motion',
     long_description = open('README.md').read(),
     long_description_content_type="text/markdown",

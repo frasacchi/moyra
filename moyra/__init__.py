@@ -1,4 +1,4 @@
-from .model_parameters import ModelParameters, ModelMatrix, ModelSymbol,ModelMatrixSymbol, ModelExpr
+from .model_parameters import ModelParameters, ModelMatrix, ModelSymbol,ModelMatrixSymbol, ModelExpr, ModelValue
 from .dynamic_model_parameters import DynamicModelParameters
 from .helper_funcs import linearise_matrix, extract_eigen_value_data
 from .symbolic_model import SymbolicModel

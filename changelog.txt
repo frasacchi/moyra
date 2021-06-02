@@ -7,12 +7,17 @@ and this project adheres to [Explicit Versioning](https://github.com/exadra37-ve
 
 ## [Unreleased]
 ### Added
+- added optional flag on the 'BodyForce' constructor to coose whether to 
+    simplify the resulting expresion
 ### Changed
+- updated octave / python print methods to utilise common sub expersion 
+    decompositon. This significantly increase the performance of the generated 
+    EoMs
 ### Deprecated
 ### Removed
 ### Fixed
 
-## [0.1.4.0] - 2021-04-07
+## [0.1.4.2] - 2021-04-07
 ### Added
 - first commit to moyra: this software was created to easily create the EoMs of
     basic nonlinear aeroelastic systems using the symbolic library sympy

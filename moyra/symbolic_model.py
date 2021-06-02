@@ -11,6 +11,8 @@ from .numeric_model import NumericModel
 import pickle
 from .forces import ZeroForce
 from .printing import model as print_model
+from .model_parameters import ModelSymbol, ModelMatrix,ModelMatrixSymbol, ModelValue
+from time import time, ctime
 
 class SymbolicModel:
     """
@@ -283,6 +285,15 @@ class SymbolicModel:
             with open(file_dir+f"{func_name}.m",'w') as file:
                 file.write(self._gen_octave(matrix,p,func_name))
         p.to_matlab_class(file_dir=file_dir)
+
+    def to_matlab_file_linear(self,p,file_dir):
+        mats = self.extract_matrices(p)
+        names = ['A','B','C','D','E']
+        funcs = list(zip([f'get_{i}' for i in names],mats))
+        for func_name,matrix in funcs:
+            with open(file_dir+f"{func_name}.m",'w') as file:
+                file.write(self._gen_octave(matrix,p,func_name))
+        p.to_matlab_class(file_dir=file_dir)
         
     def _gen_octave(self,expr,p,func_name):
         # convert states to non-time dependent variable
@@ -290,17 +301,55 @@ class SymbolicModel:
         l = dict(zip(p.x,U))
         expr = me.msubs(expr,l)
 
+        # get parameter replacements
+        param_string = '%% extract required parameters from structure\n\t'
+        matries = []
+        for var in expr.free_symbols:
+            if isinstance(var,ModelValue):
+                if isinstance(var,ModelMatrixSymbol):
+                    if var._matrix not in matries:
+                        param_string += f'{var._matrix} = p.{var._matrix};\n\t'
+                        matries.append(var._matrix)
+                elif isinstance(var,ModelSymbol):
+                    param_string += f'{var.name} = p.{var.name};\n\t'
+                elif isinstance(var,ModelMatrix):
+                    param_string += f'{var._matrix_symbol} = p.{var._matrix_symbol};\n\t'
+
+
+        # split expr into groups
+        replacments, exprs = sym.cse(expr,symbols=(sym.Symbol(f'rep_{i}')for i in range(10000)))
+        if isinstance(expr,tuple):
+            expr = tuple(exprs)
+        elif isinstance(expr,list):
+            expr = exprs
+        else:
+            expr = exprs[0]      
+
+        group_string = '%% create common groups\n\t'
+        for variable, expression in replacments:
+            group_string +=f'{variable} = {sym.printing.octave.octave_code(expression)};\n\t'
+        
         # convert to octave string and covert states to vector form
-        out = sym.printing.octave.octave_code(expr)
+        out = '%% create output vector\n\tout = ' + sym.printing.octave.octave_code(expr)
+
+        #convert state vector calls
         my_replace = lambda x: f'U({int(x.group(1))+1})'
         out = re.sub(r"u_(?P<index>\d+)",my_replace,out)
+        group_string = re.sub(r"u_(?P<index>\d+)",my_replace,group_string)
 
         # make the file pretty...
         out = out.replace(',',',...\n\t\t').replace(';',';...\n\t\t')
 
+        file_sig = f'%{func_name.upper()} Auto-generated function from moyra\n\t'
+        file_sig += f'%\n\t'
+        file_sig += f'%\tCreated at : {ctime(time())} \n\t'
+        file_sig += f'%\tCreated with : moyra https://pypi.org/project/moyra/\n\t'
+        file_sig += f'%\n\t'
+
+
         # wrap output in octave function signature
-        signature = f'function out = {func_name}(U,p)'
-        octave_string = signature + '\n\t'+ 'out = ' + out + ';\nend'
+        signature = f'function out = {func_name}(U,p)\n\t'
+        octave_string = signature + file_sig + param_string + group_string + out + ';\nend'
         return octave_string
 
 

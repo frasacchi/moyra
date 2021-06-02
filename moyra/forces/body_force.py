@@ -5,7 +5,7 @@ import sympy.physics.mechanics as me
 
 class BodyForce(ExternalForce):
     """A class used to represent Forces and moment in a particular reference frame"""        
-    def __init__(self,p,Transform,Fx=0,Fy=0,Fz=0,Mx=0,My=0,Mz=0):
+    def __init__(self,p,Transform,Fx=0,Fy=0,Fz=0,Mx=0,My=0,Mz=0,simplify=True):
         """
         Constructor for a body force, with the following parameters:
 
@@ -20,7 +20,11 @@ class BodyForce(ExternalForce):
         My          - (default = 0) the moment applied to the body about the local y axis
         Mz          - (default = 0) the moment applied to the body about the local z axis
         """
-        BodyJacobian = sym.simplify(self._trigsimp(Transform.BodyJacobian(p.q)))
+        
+        if simplify:
+            BodyJacobian = sym.simplify(self._trigsimp(Transform.BodyJacobian(p.q)))
+        else:
+            BodyJacobian = Transform.BodyJacobian(p.q)
         wrench = sym.Matrix([Fx,Fy,Fz,Mx,My,Mz])
         super().__init__(BodyJacobian.T*wrench) 
 

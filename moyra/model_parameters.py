@@ -36,7 +36,7 @@ class ModelSymbol(sym.Symbol,ModelValue):
     def __hash__(self):
         return hash(sym.Symbol(self.name))
     def _octave(self,printer):
-        return f'p.{self.name}'
+        return f'{self.name}'
 
 class ModelMatrixSymbol(ModelSymbol):
     def __init__(self,string,**kwarg):
@@ -46,7 +46,7 @@ class ModelMatrixSymbol(ModelSymbol):
     def __new__(cls,string,**kwarg):
         return super().__new__(cls,string,**kwarg)
     def _octave(self,printer):
-        return f'p.{self._matrix}({self._index+1})'
+        return f'{self._matrix}({self._index+1})'
 
 class ModelMatrix(sym.Matrix,ModelValue):
     """

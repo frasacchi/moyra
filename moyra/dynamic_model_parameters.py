@@ -34,10 +34,10 @@ class DynamicModelParameters(ModelParameters):
                     else:
                         string += f'\np.{name} = ma.ModelMatrix(value={value.value}, string=\'{value._matrix_symbol}\', length={len(value)})'
                 elif isinstance(value,sym.Symbol):
-                    string += f'\np.{name} = sym.Symbol(\'{value.name}\')'
+                    string += f'\np.{name} = Symbol(\'{value.name}\')'
         return string
 
     def to_file(self,filename,file_dir=''):
-        string = 'import moyra as ma\n\ndef get_p():\n\t' + self.print_python().replace('\n','\n\t') + '\n\treturn p\n'
+        string = 'import moyra as ma\nfrom sympy import *\n\ndef get_p():\n\t' + self.print_python().replace('\n','\n\t') + '\n\treturn p\n'
         with open(os.path.join(file_dir,filename),'w') as file:
             file.write(string)

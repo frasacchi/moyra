@@ -1,8 +1,12 @@
 from setuptools import find_packages, setup
+
+with open('version.txt','r') as f:
+    ver = f.read()
+
 setup(
     name='moyra',
     packages=find_packages(include=['moyra','moyra.*']),
-    version='0.1.4.2',
+    version=ver,
     description='Generate Multi-body Symbolic and Numeric Equations of Motion',
     long_description = open('README.md').read(),
     long_description_content_type="text/markdown",

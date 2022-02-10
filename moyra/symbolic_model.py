@@ -36,24 +36,44 @@ class SymbolicModel:
         """
         p = FwtParams 
 
+        # # Calc K.E, P.E and Rayleigh Dissaptive Function
+        # T = U = D = sym.Integer(0)
+        # # add K.E for each Rigid Element
+        # for ele in Elements:
+        #     T += ele.calc_ke(p)
+        #     U += ele.calc_pe(p)
+        #     D += ele.calc_rdf(p)
+
+        # # calculate EoM
+        # Lag = sym.Matrix([T-U])
+        # D = sym.Matrix([D])
+        # term_1 = Lag.jacobian(p.qd).diff(me.dynamicsymbols._t).T.expand()
+        # term_2 = Lag.jacobian(p.q).T
+        # term_3 = D.jacobian(p.qd).T
+
+        # # Get Mass Matrix and 'internal' forcing term
+        # M = term_1.jacobian(p.qdd) # assuming only parts in term 1 contribute to mass matrix
+        # f = sym.expand(term_1-M*p.qdd) - term_2 + term_3
+        # return cls(M,f,T,U,ExtForces)
+
         # Calc K.E, P.E and Rayleigh Dissaptive Function
         T = U = D = sym.Integer(0)
+        M = sym.zeros(p.qs,p.qs)
+        f = sym.zeros(p.qs,1)
         # add K.E for each Rigid Element
-        for ele in Elements:
-            T += ele.calc_ke(p)
-            U += ele.calc_pe(p)
-            D += ele.calc_rdf(p)
+        for i,ele in enumerate(Elements):
+            print(i)
+            T = ele.calc_ke(p)
+            U = ele.calc_pe(p)
+            D = ele.calc_rdf(p)
+            Lag = sym.Matrix([T-U])
+            D = sym.Matrix([D])
+            term_1 = Lag.jacobian(p.qd).diff(me.dynamicsymbols._t).T.expand()
+            term_2 = Lag.jacobian(p.q).T
+            term_3 = D.jacobian(p.qd).T
+            M += term_1.jacobian(p.qdd)
+            f += sym.expand(term_1.subs({j:0 for j in p.qdd})) - term_2 + term_3
 
-        # calculate EoM
-        Lag = sym.Matrix([T-U])
-        D = sym.Matrix([D])
-        term_1 = Lag.jacobian(p.qd).diff(me.dynamicsymbols._t).T.expand()
-        term_2 = Lag.jacobian(p.q).T
-        term_3 = D.jacobian(p.qd).T
-
-        # Get Mass Matrix and 'internal' forcing term
-        M = term_1.jacobian(p.qdd) # assuming all parts in term 1 contribute only to mass matrix
-        f = sym.expand(term_1-M*p.qdd) - term_2 + term_3
         return cls(M,f,T,U,ExtForces)
 
 
@@ -156,10 +176,10 @@ class SymbolicModel:
         A \ddot{q} + B\dot{q} + Cq = D\dot{q} + Eq
         """
         A = self.M
-        B = self.f.jacobian(p.qd)
-        C = self.f.jacobian(p.q)
-        D = self.ExtForces.Q().jacobian(p.qd)
-        E = self.ExtForces.Q().jacobian(p.q)
+        D = self.f.jacobian(p.qd)
+        E = self.f.jacobian(p.q)
+        B = self.ExtForces.Q().jacobian(p.qd)
+        C = self.ExtForces.Q().jacobian(p.q)
         return A,B,C,D,E
 
     def free_body_eigen_problem(self,p):

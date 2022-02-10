@@ -1,29 +1,26 @@
 import sympy as sym
 from .base_element import BaseElement
-from sympy.physics.mechanics import msubs
+from sympy.physics.mechanics import msubs,dot
 
 class FlexiElement(BaseElement):
-    def __init__(self,Transform,M,x,y,z,c,s,x_f,EI,GJ,gravityPot = False):
+    def __init__(self,Transform,M,x,y,x_integral,y_integral,x_f,EI,GJ,gravityPot = False):
         
         self.x = x
         self.y = y
-        self.z = z
-        self.c = c
-        self.s = s
         self.EI = EI
         self.GJ = GJ
         self.x_f = x_f
-
-        self.y_integral = (self.y,0,self.s)
-        self.x_integral = (self.x,0,self.c)
+        self.x_integral = x_integral
+        self.y_integral = y_integral
 
         self._gravityPotential = gravityPot
 
         self.Transform = Transform
-        self.dTransform = Transform.Translate(self.x,self.y,self.z)
         self.M_e = M
 
     def calc_ke(self, p):
+        if self.M_e.trace()==0:
+            return 0
         M = self.M(p)
         # calculate the K.E
         T = sym.Rational(1,2)*p.qd.T*(M.integrate(self.x_integral,self.y_integral))*p.qd
@@ -32,8 +29,8 @@ class FlexiElement(BaseElement):
     
     def M(self,p):
         # create the jacobian for the mass    
-        Js = self.dTransform.ManipJacobian(p.q)
-        Jb = self.dTransform.InvAdjoint()*Js
+        Js = self.Transform.ManipJacobian(p.q)
+        Jb = self.Transform.InvAdjoint()*Js
         Jb = self._trigsimp(Jb)
         #calculate the mass Matrix in world frame
         return Jb.T*self.M_e*Jb
@@ -44,18 +41,22 @@ class FlexiElement(BaseElement):
 
     def calc_elastic_pe(self,p):
         # Bending Potential Energy per unit length
-        v = self.dTransform.msubs({self.x:self.x_f}).diff(self.y,self.y).Transform_point([0,0,0])
-        U_e = self._trigsimp((v.T*v))[0]*self.EI*sym.Rational(1,2)
+        U_e = 0
+        if isinstance(self.EI, sym.Expr) or self.EI != 0:
+            v = msubs(self.Transform.t,{self.x:self.x_f}).diff(self.y,self.y)
+            U_e += self._trigsimp((v.T*v))[0]*self.EI*sym.Rational(1,2)
 
         # Torsional P.E per unit length
-        v = self.dTransform.diff(self.x).diff(self.y).Transform_point([self.x_f,0,0])
-        U_e += self._trigsimp((v.T*v))[0]*self.GJ*sym.Rational(1,2)
+        if isinstance(self.GJ, sym.Expr) or self.GJ != 0:
+            v = msubs(self.Transform.t.diff(self.x,self.y),{self.x:self.x_f})
+            U_e += self._trigsimp((v.T*v))[0]*self.GJ*sym.Rational(1,2)
 
-        return U_e.integrate(self.y_integral)
+        return U_e.integrate(self.y_integral) if isinstance(U_e, sym.Expr) else U_e
 
     def calc_grav_pe(self, p):
-        point_z = self.dTransform.Transform_point([0]*3)[2]
-        dmg = point_z*self.M_e[0,0]*p.g
+        point = self.Transform.t
+        h = -(point.T*p.g_v)[0]
+        dmg = h*self.M_e[0,0]*p.g
         return dmg.integrate(self.x_integral,self.y_integral)
 
     def calc_pe(self,p):
@@ -67,26 +68,33 @@ class FlexiElement(BaseElement):
         return 0
 
     @staticmethod
-    def ShapeFunctions_BN_TM(n,m,q,y_s,x,x_f,alpha_r,factor = 1):
+    def ShapeFunctions_BN_TM(n,m,q,y_s,x,x_f,alpha_r,factor = 1,type='taylor'):
         # check q is the length of n+m
         if n+m != len(q):
             raise ValueError('the sum of n+m must be the same as a length of q')
+            
 
         # make factor a list the size of n+m
         if isinstance(factor,int) | isinstance(factor,float):
             factor = [factor]*(n+m)
         z = sym.Integer(0)
         tau = alpha_r
-
         for i in range(0,n):
-            z = z + q[i]*y_s**(2+i)*factor[i]
+            if type == 'taylor':
+                z += q[i]*y_s**(2+i)*factor[i]
+            elif type == 'cheb':
+                z += q[i]*sym.chebyshevt_poly(i,y_s)*factor[i]
+            else:
+                raise ValueError('poly type must be either cheb or taylor')
         for i in range(0,m):
             qi = i+n
-            tau = tau + q[qi]*y_s**(i+1)*factor[n+i]
-        
+            if type == 'taylor':
+                tau += q[qi]*y_s**(i+1)*factor[n+i]
+            elif type == 'cheb':
+                tau += q[qi]*sym.chebyshevt_poly(i,y_s)*factor[i]
         z -= tau*(x-x_f)
 
-        return z, tau
+        return sym.simplify(z), sym.simplify(tau)
 
 
 

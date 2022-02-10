@@ -77,6 +77,12 @@ class HomogenousTransform:
         E[:3,3:] = -self.R.T*Wedge3(self.t)
         return E
 
+    def Diff(self):
+        E = sym.eye(4)
+        E[:3,:3] = self.R.diff(t)
+        E[:3,3] = self.t.diff(t)
+        return E
+
     def BodyVelocity(self):
         V = sym.ones(6,1)
         V[:3,0] = self.R.T*self.t.diff(t)
@@ -87,6 +93,9 @@ class HomogenousTransform:
         V[4,0] = S[0,2]
         V[5,0] = S[1,0]
         return V
+
+    def SpatialVelocity(self):
+        return self.Diff()*self.Inverse()
 
     def PuesdoSpatialFrame(self):
         E = self.E.copy()
@@ -130,3 +139,6 @@ class HomogenousTransform:
         p_l.append(1)
         p_t = self.E*sym.Matrix(p_l)
         return sym.Matrix(p_t[:3])
+
+    def Transform_vector(self,v):
+        return self.E[:3,:3]*sym.Matrix(list(v))

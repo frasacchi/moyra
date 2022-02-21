@@ -63,10 +63,12 @@ class SymbolicModel:
         # add K.E for each Rigid Element
         for i,ele in enumerate(Elements):
             print(i)
-            T = ele.calc_ke(p)
-            U = ele.calc_pe(p)
+            T_tmp = ele.calc_ke(p)
+            T += T_tmp
+            U_tmp = ele.calc_pe(p)
+            U += U_tmp
             D = ele.calc_rdf(p)
-            Lag = sym.Matrix([T-U])
+            Lag = sym.Matrix([T_tmp-U_tmp])
             D = sym.Matrix([D])
             term_1 = Lag.jacobian(p.qd).diff(me.dynamicsymbols._t).T.expand()
             term_2 = Lag.jacobian(p.q).T

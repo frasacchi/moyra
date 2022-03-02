@@ -1,5 +1,5 @@
 class BaseElement:
-    def calc_ke(self,p):
+    def calc_ke(self,p,M=None):
         # return a sybmolic equation for the Kinetic Energy of the element
         raise NotImplementedError("calc_ke not implemented in the current element")
     def calc_pe(self,p):
@@ -9,3 +9,6 @@ class BaseElement:
         # return a sybmolic equation for the Rayleigh Dissaption Function
         #  of the element
         raise NotImplementedError("calc_rdf (Rayleigh Dissapative Function) not implemented in the current element")
+    def M(self,p):
+        # return a symbolic global mass matrix 
+        raise NotImplementedError("M not implemented in the current element")

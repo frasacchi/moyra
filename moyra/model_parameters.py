@@ -110,7 +110,7 @@ class ModelParameters:
     def GetNumericTuple(self,x,t,ignore=[]):
         return tuple(var(x,t) for name,var in vars(self).items() if isinstance(var,ModelValue) and name not in ignore and var not in ignore)
 
-    def to_matlab_class(self,class_name = "Parameters",file_dir='', ignore=[]):
+    def to_matlab_class(self,class_name = "Parameters",file_dir='', ignore=[], base_class = None):
         import os.path
         # create a dict of all required params and values
         params = {}
@@ -121,7 +121,8 @@ class ModelParameters:
                 if isinstance(var,ModelMatrix):
                     params[name] = var.value
         # convert to matlab class string
-        classdef = classdef = f'classdef {class_name}'
+        cn = class_name if base_class is None else class_name+f" < {base_class}"
+        classdef = f'classdef {cn}'
         params = '\n\t\t'.join([ f'{key} = {value}' for key,value in params.items()])
         class_string = classdef + '\n\tproperties\n\t\t' + params + '\n\tend\nend'
         # save to file

@@ -1,4 +1,5 @@
 import re
+import os
 import pickle
 import sympy as sym
 import numpy as np
@@ -13,6 +14,8 @@ from .forces import ZeroForce
 from .printing import model as print_model
 from .model_parameters import ModelSymbol, ModelMatrix,ModelMatrixSymbol, ModelValue
 from time import time, ctime
+from collections.abc import Iterable
+from sympy.abc import t
 
 class SymbolicModel:
     """
@@ -30,58 +33,37 @@ class SymbolicModel:
             as 'None'
     """
     @classmethod
-    def FromElementsAndForces(cls,FwtParams,Elements,ExtForces = None):
+    def FromElementsAndForces(cls,FwtParams,Elements, ExtForces=None, C=None):
         """
         Create a symbolic Model instance from a set Elements and external forces
         """
         p = FwtParams 
-
-        # # Calc K.E, P.E and Rayleigh Dissaptive Function
-        # T = U = D = sym.Integer(0)
-        # # add K.E for each Rigid Element
-        # for ele in Elements:
-        #     T += ele.calc_ke(p)
-        #     U += ele.calc_pe(p)
-        #     D += ele.calc_rdf(p)
-
-        # # calculate EoM
-        # Lag = sym.Matrix([T-U])
-        # D = sym.Matrix([D])
-        # term_1 = Lag.jacobian(p.qd).diff(me.dynamicsymbols._t).T.expand()
-        # term_2 = Lag.jacobian(p.q).T
-        # term_3 = D.jacobian(p.qd).T
-
-        # # Get Mass Matrix and 'internal' forcing term
-        # M = term_1.jacobian(p.qdd) # assuming only parts in term 1 contribute to mass matrix
-        # f = sym.expand(term_1-M*p.qdd) - term_2 + term_3
-        # return cls(M,f,T,U,ExtForces)
 
         # Calc K.E, P.E and Rayleigh Dissaptive Function
         T = U = D = sym.Integer(0)
         M = sym.zeros(p.qs,p.qs)
         f = sym.zeros(p.qs,1)
         # add K.E for each Rigid Element
-        for i,ele in enumerate(Elements):
+        for i,ele in enumerate(Elements if isinstance(Elements,Iterable) else [Elements]):
             print(i)
-            T_tmp = ele.calc_ke(p)
+            M_tmp = ele.M(p) 
+            M += M_tmp
+            T_tmp = ele.calc_ke(p,M)
             T += T_tmp
             U_tmp = ele.calc_pe(p)
             U += U_tmp
             D = ele.calc_rdf(p)
             Lag = sym.Matrix([T_tmp-U_tmp])
             D = sym.Matrix([D])
-            term_1 = Lag.jacobian(p.qd).diff(me.dynamicsymbols._t).T.expand()
+            term_1 = Lag.jacobian(p.qd).diff(t).T.expand()
             term_2 = Lag.jacobian(p.q).T
             term_3 = D.jacobian(p.qd).T
-            M += term_1.jacobian(p.qdd)
             f += sym.expand(term_1.subs({j:0 for j in p.qdd})) - term_2 + term_3
+        return cls(M,f,T,U,ExtForces,C)
 
-        return cls(M,f,T,U,ExtForces)
-
-
-    def __init__(self,M,f,T,U,ExtForces = None):
+    def __init__(self,M,f,T,U,ExtForces = None,C = None):
         """Initialise a Symbolic model of the form 
-        $M\ddot{q}+f(\dot{q},q,t)-ExtForces(\dot{q},q,t) = 0$
+        $M\ddot{q}+f(\dot{q},q,t)-ExtForces(\dot{q},q,t) = 0, with constraints C=0$
 
         with the Symbolic Matricies M,f,and Extforces
         """
@@ -89,10 +71,8 @@ class SymbolicModel:
         self.f = f
         self.T = T
         self.U = U
-        if ExtForces is None:
-            self.ExtForces = ZeroForce(f.shape[0])
-        else:
-            self.ExtForces = ExtForces
+        self.ExtForces = ExtForces if ExtForces is not None else ZeroForce(f.shape[0])
+        self.C = C
 
     def cancel(self):
         """
@@ -103,8 +83,9 @@ class SymbolicModel:
         # handle zero kinetic + pot energies
         T = self.T if isinstance(self.T,int) else sym.cancel(self.T)
         U = self.U if isinstance(self.U,int) else sym.cancel(self.U)
+        C = self.C if self.C is None else sym.cancel(self.C)
         return SymbolicModel(sym.cancel(self.M),sym.cancel(self.f),
-                            T,U,ExtForces)
+                            T,U,ExtForces,C)
 
     def expand(self):
         """
@@ -115,8 +96,9 @@ class SymbolicModel:
         # handle zero kinetic + pot energies
         T = self.T if isinstance(self.T,int) else sym.expand(self.T)
         U = self.U if isinstance(self.U,int) else sym.expand(self.U)
+        C = self.C if self.C is None else sym.expand(self.C)
         return SymbolicModel(sym.expand(self.M),sym.expand(self.f),
-                            T,U,ExtForces)
+                            T,U,ExtForces,C)
 
 
     def subs(self,*args):
@@ -129,8 +111,9 @@ class SymbolicModel:
         # handle zero kinetic + pot energies
         T = self.T if isinstance(self.T,int) else self.T.subs(*args)
         U = self.U if isinstance(self.U,int) else self.U.subs(*args)
+        C = self.C if self.C is None else self.C.subs(*args)
         return SymbolicModel(self.M.subs(*args),self.f.subs(*args),
-                            T,U,ExtForces)
+                            T,U,ExtForces,C)
 
     def msubs(self,*args):
         """
@@ -142,8 +125,9 @@ class SymbolicModel:
         # handle zero kinetic + pot energies
         T = self.T if isinstance(self.T,int) else me.msubs(self.T,*args)
         U = self.U if isinstance(self.U,int) else me.msubs(self.U,*args)
+        C = self.C if self.C is None else me.msubs(self.C,*args)
         return SymbolicModel(me.msubs(self.M,*args),me.msubs(self.f,*args),
-                            T,U,ExtForces)
+                            T,U,ExtForces,C)
 
     def linearise(self,p):
         """
@@ -272,12 +256,17 @@ class SymbolicModel:
         T_code = "def get_T(p):\n\t"+print_model(self.T,p).replace('\n','\n\t')+"\n\treturn e\n"
         U_code = "def get_U(p):\n\t"+print_model(self.U,p).replace('\n','\n\t')+"\n\treturn e\n"
         p_code = 'def get_p():\n\t'+p.print_python().replace('\n','\n\t')+"\n\treturn p\n"
+
         if self.ExtForces is not None:
             Q_code = "def get_Q(p):\n\t"+print_model(self.ExtForces.Q(),p).replace('\n','\n\t')+"\n\treturn e\n"
         else:
             Q_code = "def get_Q(p):\n\t"+"return ImmutableDenseMatrix([[0]"+",[0]"*(self.M.shape[0]-1)+"])\n"
+        if self.C is not None:
+            C_code = 'def get_C(p):\n\t'+print_model(self.C,p).replace('\n','\n\t')+"\n\treturn e\n"
+        else:
+            C_code = 'def get_C(p):\n\treturn None\n'
         #Combine and add import statements
-        full_code = "from sympy import *\nimport moyra as ma\n\n"+M_code+f_code+T_code+U_code+Q_code+p_code
+        full_code = "from sympy import *\nimport moyra as ma\n\n"+M_code+f_code+T_code+U_code+Q_code+C_code+p_code
 
         # Save to the file
         t_file = open(filename,"w")
@@ -298,8 +287,40 @@ class SymbolicModel:
         T = m.get_T(p)
         U = m.get_U(p)
         _Q = m.get_Q(p)
+        C = m.get_C(p)
         ExtForce = ExternalForce(_Q)
-        return (cls(M,f,T,U,ExtForce),p)
+        return (cls(M,f,T,U,ExtForce,C),p)
+
+
+    def to_matlab_class(self,p,file_dir,class_name,base_class = None,additional_funcs = []):
+        funcs = [('get_M',self.M),('get_f',self.f),('get_Q',self.ExtForces.Q()),
+                ('get_KE',self.T),('get_PE',self.U)]
+        funcs = [*funcs,*additional_funcs]
+        if self.C is not None:
+            funcs.append(('get_C',self.C))
+            C_q = sym.simplify(self.C.jacobian(p.q))
+            C_t = sym.simplify(self.C.diff(t,1))
+            C_tt = sym.simplify(self.C.diff(t,2))
+            Q_c = sym.simplify(C_tt-self.C.jacobian(p.q)*p.qdd)
+            M_lag = sym.BlockMatrix([[self.M,C_q.T],[C_q,sym.zeros(len(self.C))]]).as_explicit()
+            Q_lag = sym.BlockMatrix([[self.f-self.ExtForces.Q()],[Q_c]]).as_explicit()
+
+            funcs.append(('get_C_q',C_q))
+            funcs.append(('get_C_t',C_t))
+            # funcs.append(('get_C_tt',me.msubs(C_tt))
+            funcs.append(('get_Q_c',Q_c))
+            funcs.append(('get_M_lag',M_lag))
+            funcs.append(('get_Q_lag',Q_lag))
+        # create directory
+        class_dir = file_dir+f"@{class_name}\\"
+        if not os.path.exists(class_dir):
+            os.mkdir(class_dir)
+        for func_name,matrix in funcs:
+            with open(class_dir+f"{func_name}.m",'w') as file:
+                file.write(self._gen_octave(matrix,p,func_name))
+        p.to_matlab_class(class_name=class_name, file_dir=class_dir, base_class=base_class )
+        
+
     
     def to_matlab_file(self,p,file_dir):
         funcs = (('get_M',self.M),('get_f',self.f),('get_Q',self.ExtForces.Q()))
@@ -321,6 +342,8 @@ class SymbolicModel:
         # convert states to non-time dependent variable
         U = sym.Matrix(sym.symbols(f'u_:{p.qs*2}'))
         l = dict(zip(p.x,U))
+        l_deriv = dict(zip(p.q.diff(t),p.qd))
+        expr = me.msubs(expr,l_deriv)
         expr = me.msubs(expr,l)
 
         # get parameter replacements
@@ -370,7 +393,7 @@ class SymbolicModel:
 
 
         # wrap output in octave function signature
-        signature = f'function out = {func_name}(U,p)\n\t'
+        signature = f'function out = {func_name}(p,U)\n\t'
         octave_string = signature + file_sig + param_string + group_string + out + ';\nend'
         return octave_string
 

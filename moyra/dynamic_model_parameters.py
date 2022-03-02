@@ -11,11 +11,7 @@ class DynamicModelParameters(ModelParameters):
         self.qdd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',2))
 
         # create state matrix
-        x_ls = []
-        for i in range(0,DoFs):
-            x_ls.append(self.q[i])
-            x_ls.append(self.qd[i])
-        self.x = sym.Matrix(x_ls)
+        self.x = sym.BlockMatrix([[self.q],[self.qd]]).as_explicit()
         super().__init__()
 
     def print_python(self):

@@ -39,10 +39,7 @@ class NumericModel:
         except ZeroDivisionError:
             accels = np.linalg.inv(self.M(x,tup))@(-self.f(x,tup))        
 
-        state_vc = []
-        for i in range(0,int(len(x)/2)):
-            state_vc.append(x[(i)*2+1])
-            state_vc.append(accels[i,0])
+        state_vc = np.append(x[int(len(x)/2):],accels)
         return tuple(state_vc)
 
     def energy(self,x,tup,t):

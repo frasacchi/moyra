@@ -3,13 +3,13 @@ import sympy as sym
 from sympy.abc import t
 import sympy.physics.mechanics as me
 
+from moyra.helper_funcs import Wedge
+
 
 class ReferenceFrame(BaseReferenceFrame):
 
     @classmethod
     def EulerParameters(cls,R,theta):
-        theta = theta.copy()
-        R = R.copy()
         G = sym.Integer(2)*sym.Matrix([[-theta[1],theta[0],-theta[3],theta[2],],
                                         [-theta[2],theta[3],theta[0],-theta[1],],
                                         [-theta[3],-theta[2],theta[1],theta[0],]])
@@ -21,8 +21,6 @@ class ReferenceFrame(BaseReferenceFrame):
 
     @classmethod
     def EulerAnglesXYZ(cls,R,theta):
-        theta = theta.copy()
-        R = R.copy()
         G = sym.Matrix([  [1,0,sym.sin(theta[1])],
                                 [0,sym.cos(theta[0]),-sym.sin(theta[0])*sym.cos(theta[1])],
                                 [0,sym.sin(theta[1]),sym.cos(theta[0])*sym.cos(theta[1])]])
@@ -33,10 +31,27 @@ class ReferenceFrame(BaseReferenceFrame):
         return cls(theta,A,R,G,Gb)
 
     def __init__(self,theta,A,R,G,Gb):
-        self.theta = sym.Matrix(theta)
-        self.G = G.copy()
-        self.Gb = Gb.copy()
+        self._theta = sym.Matrix([*theta])
+        self._G = G.copy()
+        self._Gb = Gb.copy()
         super(ReferenceFrame,self).__init__(A,R)
+    
+    G = property(lambda self: self._G)
+    Gb = property(lambda self: self._Gb)
+    theta = property(lambda self: self._theta)
+
+    def GlobalVelocity(self,u=sym.Matrix([0]*3)):
+        return self.R.diff(t)-self.A*Wedge(u)*self.Gb*self.theta.diff(t)
+
+    def BodyVelocity(self,u=sym.Matrix([0]*3)):
+        return self.A.T*self.GlobalVelocity(u)
+
+    def BodyJacobian(self,q,u=sym.Matrix([0]*3)):
+        B = sym.zeros(3,len(self.theta))
+        for i in range(len(self.theta)):
+            B[:,i] = (self.A*u).diff(self.theta[i])
+        Jb = [[self.A.T,self.A.T*B],[sym.zeros(3),self.Gb]]
+        return sym.simplify(sym.BlockMatrix(Jb).as_explicit())
 
     def PuesdoSpatialFrame(self):
         return ReferenceFrame( self.theta.copy(),sym.eye(3),

@@ -5,11 +5,14 @@ import sympy.physics.mechanics as me
 class BaseReferenceFrame:
 
     def __init__(self,A=None,R=None):
-        self.A = sym.eye(3) if A is None else sym.Matrix(A)
-        self.R = sym.zeros(3,1) if R is None else sym.Matrix(R)
+        self._A = sym.eye(3) if A is None else sym.Matrix(A)
+        self._R = sym.zeros(3,1) if R is None else sym.Matrix(R)
 
-    def Transform_point(self,p):
+    A = property(lambda self: self._A)
+    R = property(lambda self: self._R)    
+
+    def transform_point(self,p):
         return self.A*sym.Matrix(list(p))+self.R
 
-    def Transform_vector(self,v):
+    def transform_vector(self,v):
         return self.A*sym.Matrix(list(v))

@@ -1,3 +1,4 @@
+from functools import cache
 from moyra.frames.base_reference_frame import BaseReferenceFrame
 import sympy as sym
 from sympy.abc import t
@@ -7,9 +8,18 @@ from moyra.helper_funcs import Vee, Vee4, Wedge, Wedge4
 
 class HomogenousFrame(BaseReferenceFrame):
 
-    def __init__(self,T=None):
-        self.E = sym.eye(4) if T is None else T
-        super(HomogenousFrame, self).__init__(self.E[:3,:3],self.E[:3,3])
+    def __init__(self,E=None):
+        E = sym.eye(4) if E is None else E
+        super(HomogenousFrame, self).__init__(E[:3,:3],E[:3,3])
+    
+    @property
+    @cache
+    def E(self):
+        E = sym.eye(4)
+        E[:3,:3] = self.A
+        E[:3,3] = self.R
+        return E
+
 
     def BodyJacobian(self,q):
         return self.InvAdjoint()*self.ManipJacobian(q)
@@ -72,7 +82,12 @@ class HomogenousFrame(BaseReferenceFrame):
     def PuesdoSpatialFrame(self):
         E = self.E.copy()
         E[:3,:3] = sym.eye(3)
-        return HomogenousFrame(E)
+        return HomogenousFrame(self.q, E)
+    
+    def Rotate(self,A):
+        H = sym.eye(4)
+        H[:3,:3]=A
+        return HomogenousFrame(self.E*H)
 
     def R_x(self,angle):
         H = sym.eye(4)

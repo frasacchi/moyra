@@ -7,10 +7,11 @@ from scipy.linalg import eig
 import sympy.physics.mechanics as me
 from sympy.physics.vector.printing import vpprint, vlatex
 from sympy.abc import x,y,t
-from .helper_funcs import linearise_matrix
+
+from moyra.forces.external_force import ExternalForce
+from .helper_funcs import linearise_matrix, partial_wrt_t
 from .numeric_model import NumericModel
 import pickle
-from .forces import ZeroForce
 from .printing import model as print_model
 from .model_parameters import ModelSymbol, ModelMatrix,ModelMatrixSymbol, ModelValue
 from time import time, ctime
@@ -33,46 +34,73 @@ class SymbolicModel:
             as 'None'
     """
     @classmethod
-    def FromElementsAndForces(cls,FwtParams,Elements, ExtForces=None, C=None):
+    def FromElementsAndForces(cls,q,Elements, ExtForces=None, C=None):
         """
         Create a symbolic Model instance from a set Elements and external forces
         """
-        p = FwtParams 
-
         # Calc K.E, P.E and Rayleigh Dissaptive Function
         T = U = D = sym.Integer(0)
-        M = sym.zeros(p.qs,p.qs)
-        f = sym.zeros(p.qs,1)
+        qs = len(q)
+        M = sym.zeros(qs)
+        f = sym.zeros(qs,1)
+        sm = cls(q,M,f,T,U)
         # add K.E for each Rigid Element
-        for i,ele in enumerate(Elements if isinstance(Elements,Iterable) else [Elements]):
-            print(i)
-            M_tmp = ele.M(p) 
-            M += M_tmp
-            T_tmp = ele.calc_ke(p,M)
-            T += T_tmp
-            U_tmp = ele.calc_pe(p)
-            U += U_tmp
-            D = ele.calc_rdf(p)
-            Lag = sym.Matrix([T_tmp-U_tmp])
-            D = sym.Matrix([D])
-            term_1 = Lag.jacobian(p.qd).diff(t).T.expand()
-            term_2 = Lag.jacobian(p.q).T
-            term_3 = D.jacobian(p.qd).T
-            f += sym.expand(term_1.subs({j:0 for j in p.qdd})) - term_2 + term_3
-        return cls(M,f,T,U,ExtForces,C)
+        Elements = Elements if isinstance(Elements,Iterable) else [Elements]
+        for i,ele in enumerate(Elements):
+            print(f'Generating EoM for Element {i+1} out of {len(Elements)} - {ele}')
+            sm += ele.to_symbolic_model()
+        
+        return cls(q,sm.M,sm.f,sm.T,sm.U,ExtForces,C)
 
-    def __init__(self,M,f,T,U,ExtForces = None,C = None):
+    def __init__(self,q,M,f,T,U,ExtForces = None,C = sym.Matrix([])):
         """Initialise a Symbolic model of the form 
         $M\ddot{q}+f(\dot{q},q,t)-ExtForces(\dot{q},q,t) = 0, with constraints C=0$
 
         with the Symbolic Matricies M,f,and Extforces
         """
-        self.M = M
-        self.f = f
-        self.T = T
-        self.U = U
-        self.ExtForces = ExtForces if ExtForces is not None else ZeroForce(f.shape[0])
-        self.C = C
+        self._M = M
+        self._f = f
+        self._T = T
+        self._U = U
+        self._q = q
+        self._ExtForces = ExtForces if ExtForces is not None else ExternalForce.zero_force(f.shape[0])
+        self._C = C
+
+    M = property(lambda self:self._M)
+    f = property(lambda self:self._f)
+    T = property(lambda self:self._T)
+    U = property(lambda self:self._U)
+    q = property(lambda self:self._q)
+    qd = property(lambda self:self.q.diff(t))
+    qdd = property(lambda self:self.q.diff(t,2))
+    qs = property(lambda self:len(self.q))
+    ExtForces = property(lambda self:self._ExtForces)
+    C = property(lambda self:self._C)
+
+    def __add__(self,other):
+        if not isinstance(other,SymbolicModel):
+            raise TypeError('other must be of type SymbolicModel')
+        idx = [i for i, e in enumerate(self.q) if e in other.q]
+        
+        # add mass matricies
+        M = sym.Matrix(self.M)
+        for i,m_i in enumerate(idx):
+            for j,m_j in enumerate(idx):
+                M[m_i,m_j] += other.M[i,j]
+
+        # add forces matricies
+        f = sym.Matrix(self.f)
+        Q = self.ExtForces.Q()
+        Q_other = other.ExtForces.Q()
+        for i,m_i in enumerate(idx):
+                f[m_i] += other.f[i]
+                Q[m_i] += Q_other[i]
+
+        T = self.T + other.T
+        U = self.U + other.U
+        C = sym.Matrix([*self.C,*other.C])
+
+        return SymbolicModel(self.q,M,f,T,U,ExternalForce(Q),C)
 
     def cancel(self):
         """
@@ -84,7 +112,7 @@ class SymbolicModel:
         T = self.T if isinstance(self.T,int) else sym.cancel(self.T)
         U = self.U if isinstance(self.U,int) else sym.cancel(self.U)
         C = self.C if self.C is None else sym.cancel(self.C)
-        return SymbolicModel(sym.cancel(self.M),sym.cancel(self.f),
+        return SymbolicModel(self.q,sym.cancel(self.M),sym.cancel(self.f),
                             T,U,ExtForces,C)
 
     def expand(self):
@@ -97,7 +125,7 @@ class SymbolicModel:
         T = self.T if isinstance(self.T,int) else sym.expand(self.T)
         U = self.U if isinstance(self.U,int) else sym.expand(self.U)
         C = self.C if self.C is None else sym.expand(self.C)
-        return SymbolicModel(sym.expand(self.M),sym.expand(self.f),
+        return SymbolicModel(self.q,sym.expand(self.M),sym.expand(self.f),
                             T,U,ExtForces,C)
 
 
@@ -112,7 +140,7 @@ class SymbolicModel:
         T = self.T if isinstance(self.T,int) else self.T.subs(*args)
         U = self.U if isinstance(self.U,int) else self.U.subs(*args)
         C = self.C if self.C is None else self.C.subs(*args)
-        return SymbolicModel(self.M.subs(*args),self.f.subs(*args),
+        return SymbolicModel(self.q,self.M.subs(*args),self.f.subs(*args),
                             T,U,ExtForces,C)
 
     def msubs(self,*args):
@@ -126,10 +154,10 @@ class SymbolicModel:
         T = self.T if isinstance(self.T,int) else me.msubs(self.T,*args)
         U = self.U if isinstance(self.U,int) else me.msubs(self.U,*args)
         C = self.C if self.C is None else me.msubs(self.C,*args)
-        return SymbolicModel(me.msubs(self.M,*args),me.msubs(self.f,*args),
+        return SymbolicModel(self.q, me.msubs(self.M,*args),me.msubs(self.f,*args),
                             T,U,ExtForces,C)
 
-    def linearise(self,p):
+    def linearise(self,x_f):
         """
         Creates a new instance of the symbolic model class in which the EoM have been 
         linearised about the fixed point p.q_0
@@ -138,37 +166,37 @@ class SymbolicModel:
         # (go in reverse order so velocitys are subbed in before positon)
 
         # get the full EoM's for free vibration and linearise
-        eom = self.M*p.qdd + self.f
 
-        x = [ j for i in range(len(p.q)) for j in [p.q[i],p.qd[i],p.qdd[i]]]
-        fp = [ j for i in range(len(p.q)) for j in [p.fp[::2][i],p.fp[1::2][i],0]]
-        eom_lin = linearise_matrix(eom,x,fp)
+        x = [*self.q,*self.qd]
+        x_subs = {x[i]:x_f[i] for i in range(len(x))}
 
-        #extract linearised M
-        M_lin = eom_lin.jacobian(p.qdd)
+        M_lin = me.msubs(self.M,x_subs)
 
-        #extract linerised f
-        f_lin = (eom_lin - M_lin*p.qdd).doit().expand()
+        f_lin = linearise_matrix(self.f,x,x_f)
+        T_lin = linearise_matrix(self.T,x,x_f)
+        U_lin = linearise_matrix(self.U,x,x_f)
 
         # Linearise the External Forces
-        extForce_lin = self.ExtForces.linearise(p.x,p.fp) if self.ExtForces is not None else None
+        extForce_lin = self.ExtForces.linearise(x,x_f) if self.ExtForces is not None else None
 
         # create the linearised model and return it
-        return SymbolicModel(M_lin,f_lin,0,0,extForce_lin)
+        return SymbolicModel(self.q,M_lin,f_lin,T_lin,U_lin,extForce_lin)
 
-    def extract_matrices(self,p):
+    def extract_matrices(self):
         """
         From the current symbolic model extacts the classic matrices A,B,C,D,E as per the equation below
         A \ddot{q} + B\dot{q} + Cq = D\dot{q} + Eq
+
+        THE SYSTEM MUST BE LINEARISED FOR THIS TO WORK
         """
         A = self.M
-        D = self.f.jacobian(p.qd)
-        E = self.f.jacobian(p.q)
-        B = self.ExtForces.Q().jacobian(p.qd)
-        C = self.ExtForces.Q().jacobian(p.q)
+        D = self.f.jacobian(self.qd)
+        E = self.f.jacobian(self.q)
+        B = self.ExtForces.Q().jacobian(self.qd)
+        C = self.ExtForces.Q().jacobian(self.q)
         return A,B,C,D,E
 
-    def free_body_eigen_problem(self,p):
+    def free_body_eigen_problem(self):
         """
         gets the genralised eigan matrices for the free body problem.
         They are of the form:
@@ -178,16 +206,16 @@ class SymbolicModel:
 
         THE SYSTEM MUST BE LINEARISED FOR THIS TO WORK
         """
-        M = sym.eye(p.qs*2)
-        M[-p.qs:,-p.qs:]=self.M
+        M = sym.eye(self.qs*2)
+        M[-self.qs:,-self.qs:]=self.M
 
-        K = sym.zeros(p.qs*2)
-        K[:p.qs,-p.qs:] = sym.eye(p.qs)
-        K[-p.qs:,:p.qs] = -self.f.jacobian(p.q)
-        K[-p.qs:,-p.qs:] = -self.f.jacobian(p.qd)
+        K = sym.zeros(self.qs*2)
+        K[:self.qs,-self.qs:] = sym.eye(self.qs)
+        K[-self.qs:,:self.qs] = -self.f.jacobian(self.q)
+        K[-self.qs:,-self.qs:] = -self.f.jacobian(self.qd)
         return K,M
 
-    def gen_eigen_problem(self,p):
+    def gen_eigen_problem(self):
         """
         gets the genralised eigan matrices for use in solving the frequencies / modes. 
         They are of the form:
@@ -197,53 +225,17 @@ class SymbolicModel:
 
         THE SYSTEM MUST BE LINEARISED FOR THIS TO WORK
         """
-        M_prime = sym.eye(p.qs*2)
-        M_prime[-p.qs:,-p.qs:]=self.M
+        M_prime = sym.eye(self.qs*2)
+        M_prime[-self.qs:,-self.qs:]=self.M
 
-        _Q = self.ExtForces.Q() if self.ExtForces is not None else sym.Matrix([0]*p.qs)
+        _Q = self.ExtForces.Q() if self.ExtForces is not None else sym.Matrix([0]*self.qs)
 
-        #f = (_Q-self.f)
-
-        K_prime = sym.zeros(p.qs*2)
-        K_prime[:p.qs,-p.qs:] = sym.eye(p.qs)
-        K_prime[-p.qs:,:p.qs] = _Q.jacobian(p.q)-self.f.jacobian(p.q)
-        K_prime[-p.qs:,-p.qs:] = _Q.jacobian(p.qd)-self.f.jacobian(p.qd)
+        K_prime = sym.zeros(self.qs*2)
+        K_prime[:self.qs,-self.qs:] = sym.eye(self.qs)
+        K_prime[-self.qs:,:self.qs] = _Q.jacobian(self.q)-self.f.jacobian(self.q)
+        K_prime[-self.qs:,-self.qs:] = _Q.jacobian(self.qd)-self.f.jacobian(self.qd)
 
         return K_prime, M_prime
-
-    def gen_lin_eigen_problem(self,p):
-        """
-        gets the genralised eigan matrices for use in solving the frequencies / modes. 
-        They are of the form:
-            |   I   0   |       |    0    I   |
-        M=  |   0   M   |   ,K= |   E-C  D-B  |
-        such that scipy.linalg.eig(K,M) solves the problem 
-
-        THE SYSTEM MUST BE LINEARISED FOR THIS TO WORK
-        """
-        x = [ j for i in range(len(p.q)) for j in [p.q[i],p.qd[i],p.qdd[i]]]
-        fp = [ j for i in range(len(p.q)) for j in [p.fp[::2][i],p.fp[1::2][i],0]]
-
-        x_subs = {x[i]:fp[i] for i in range(len(x))}        
-
-        _Q = self.ExtForces.Q() if self.ExtForces is not None else sym.Matrix([0]*p.qs)
-
-        f = (_Q - self.f)
-
-        A = me.msubs(self.M,x_subs)
-        B = me.msubs(self._jacobian(f,p.qd),x_subs)
-        C = me.msubs(self._jacobian(f,p.q),x_subs)
-
-        M_prime = sym.eye(p.qs*2)
-        M_prime[-p.qs:,-p.qs:]=A
-
-        K_prime = sym.zeros(p.qs*2)
-        K_prime[:p.qs,-p.qs:] = sym.eye(p.qs)
-        K_prime[-p.qs:,:p.qs] = C
-        K_prime[-p.qs:,-p.qs:] = B
-
-        return K_prime, M_prime
-
 
     @staticmethod
     def _jacobian(M,x):
@@ -298,10 +290,11 @@ class SymbolicModel:
         funcs = [*funcs,*additional_funcs]
         if self.C is not None:
             funcs.append(('get_C',self.C))
-            C_q = sym.simplify(self.C.jacobian(p.q))
-            C_t = sym.simplify(self.C.diff(t,1))
-            C_tt = sym.simplify(self.C.diff(t,2))
-            Q_c = sym.simplify(C_tt-self.C.jacobian(p.q)*p.qdd)
+            C_q = sym.simplify(self.C).jacobian(self.q)
+            C_t =  partial_wrt_t(self.C,p.q)
+            C_tt = partial_wrt_t(C_t,p.q)
+            C_qt = partial_wrt_t(C_q,p.q)
+            Q_c = C_tt + (C_q*p.qd).jacobian(p.q)*p.qd + 2*C_qt*p.qd
             M_lag = sym.BlockMatrix([[self.M,C_q.T],[C_q,sym.zeros(len(self.C))]]).as_explicit()
             Q_lag = sym.BlockMatrix([[self.f-self.ExtForces.Q()],[Q_c]]).as_explicit()
 
@@ -317,38 +310,37 @@ class SymbolicModel:
             os.mkdir(class_dir)
         for func_name,matrix in funcs:
             with open(class_dir+f"{func_name}.m",'w') as file:
-                file.write(self._gen_octave(matrix,p,func_name))
+                file.write(self._gen_octave(matrix,func_name))
         p.to_matlab_class(class_name=class_name, file_dir=class_dir, base_class=base_class )
-        
-
     
     def to_matlab_file(self,p,file_dir):
         funcs = (('get_M',self.M),('get_f',self.f),('get_Q',self.ExtForces.Q()))
         for func_name,matrix in funcs:
             with open(file_dir+f"{func_name}.m",'w') as file:
-                file.write(self._gen_octave(matrix,p,func_name))
+                file.write(self._gen_octave(matrix,func_name))
         p.to_matlab_class(file_dir=file_dir)
 
     def to_matlab_file_linear(self,p,file_dir):
-        mats = self.extract_matrices(p)
+        mats = self.extract_matrices()
         names = ['A','B','C','D','E']
         funcs = list(zip([f'get_{i}' for i in names],mats))
         for func_name,matrix in funcs:
             with open(file_dir+f"{func_name}.m",'w') as file:
-                file.write(self._gen_octave(matrix,p,func_name))
+                file.write(self._gen_octave(matrix,func_name))
         p.to_matlab_class(file_dir=file_dir)
         
-    def _gen_octave(self,expr,p,func_name):
+    def _gen_octave(self,expr,func_name):
         # convert states to non-time dependent variable
-        U = sym.Matrix(sym.symbols(f'u_:{p.qs*2}'))
-        l = dict(zip(p.x,U))
-        l_deriv = dict(zip(p.q.diff(t),p.qd))
+        U = sym.Matrix(sym.symbols(f'u_:{self.qs*2}'))
+        l = dict(zip([*self.q,*self.qd],U))
+        l_deriv = dict(zip(self.q.diff(t),self.qd))
         expr = me.msubs(expr,l_deriv)
         expr = me.msubs(expr,l)
 
         # get parameter replacements
         param_string = '%% extract required parameters from structure\n\t'
         matries = []
+        unknown_vars = []
         for var in expr.free_symbols:
             if isinstance(var,ModelValue):
                 if isinstance(var,ModelMatrixSymbol):
@@ -359,6 +351,9 @@ class SymbolicModel:
                     param_string += f'{var.name} = p.{var.name};\n\t'
                 elif isinstance(var,ModelMatrix):
                     param_string += f'{var._matrix_symbol} = p.{var._matrix_symbol};\n\t'
+            elif var not in U:
+                print(f'Unknown variable {var} found in function {func_name}. It will be added to the function signature.')
+                unknown_vars.append(var)
 
 
         # split expr into groups
@@ -393,7 +388,9 @@ class SymbolicModel:
 
 
         # wrap output in octave function signature
-        signature = f'function out = {func_name}(p,U)\n\t'
+        # create unknow var string
+        unknown_str = '' if not unknown_vars else ','+','.join(sorted([str(i) for i in unknown_vars], key=str))
+        signature = f'function out = {func_name}(p,U{unknown_str})\n\t'
         octave_string = signature + file_sig + param_string + group_string + out + ';\nend'
         return octave_string
 

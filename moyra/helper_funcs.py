@@ -35,6 +35,18 @@ def Wedge(V):
     val[2,1] = V[0]
     return val
 
+def partial_wrt_t(expr,q):
+    qs = len(q)
+    qd = q.diff(t)
+    # insert  dummy variables
+    U = sym.Matrix(sym.symbols(f'u_:{qs*2}'))
+    l = dict(zip([*q,*qd],U))
+    expr = me.msubs(expr,l)
+    return expr.diff(t)
+
+def trigsimp(expr):
+        return sym.trigsimp(sym.powsimp(sym.cancel(sym.expand(expr)))) 
+
 def linearise_matrix(M,x,x_f):
     # reverse order of states to ensure velocities are subbed first
     x_subs = {x[i]:x_f[i] for i in range(len(x))}

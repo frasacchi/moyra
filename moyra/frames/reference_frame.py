@@ -52,7 +52,7 @@ class ReferenceFrame(BaseReferenceFrame):
             B[:,i] = (self.A*u).diff(self.theta[i])
         Jb = [[self.A.T,self.A.T*B],[sym.zeros(3),self.Gb]]
         return sym.simplify(sym.BlockMatrix(Jb).as_explicit())
-
+    
     def PuesdoSpatialFrame(self):
         return ReferenceFrame( self.theta.copy(),sym.eye(3),
                                 self.t.copy(),sym.zeros(3,len(self.theta)),

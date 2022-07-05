@@ -43,14 +43,15 @@ class BaseElement:
     def M(self):
         warnings.warn(f'M not implemented in the ele {self}')
         return sym.zeros(len(self.q))
-    
-    def to_symbolic_model(self):
+
+    def to_symbolic_model(self, legacy=False):
         Lag = sym.Matrix([self.ke-self.pe])
         D = sym.Matrix([self.rdf])
-        term_1 = Lag.jacobian(self.qd).diff(t).T.expand()
+        # legacy method is a lot slower but can produce more compact results
+        Q_v = (self.M.diff(t))*self.qd if not legacy else Lag.jacobian(self.qd).diff(t).T
         term_2 = Lag.jacobian(self.q).T
         term_3 = D.jacobian(self.qd).T
-        f = sym.expand(term_1.subs({j:0 for j in self.qdd})) - term_2 + term_3
+        f = Q_v - term_2 + term_3
         return SymbolicModel(self.q,self.M,f,self.ke,self.pe)      
 
     @property

@@ -1,4 +1,5 @@
 import sympy as sym
+from functools import cache
 from .base_element import BaseElement
 
 class Spring(BaseElement):
@@ -11,6 +12,8 @@ class Spring(BaseElement):
     rdf = property(lambda self:0)
     M = property(lambda self: sym.zeros(len(self.q)))
 
+    @property
+    @cache
     def pe(self):
         return sym.Rational(1,2)*self.__k*self.__z**2
         

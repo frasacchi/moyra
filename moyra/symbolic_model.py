@@ -52,6 +52,25 @@ class SymbolicModel:
         
         return cls(q,sm.M,sm.f,sm.T,sm.U,ExtForces,C)
 
+    @classmethod
+    def FromElementsAndForces_2(cls,q,Elements, ExtForces=None, C=None):
+        """
+        Create a symbolic Model instance from a set Elements and external forces
+        """
+        # Calc K.E, P.E and Rayleigh Dissaptive Function
+        T = U = D = sym.Integer(0)
+        qs = len(q)
+        M = sym.zeros(qs)
+        f = sym.zeros(qs,1)
+        sm = cls(q,M,f,T,U)
+        # add K.E for each Rigid Element
+        Elements = Elements if isinstance(Elements,Iterable) else [Elements]
+        for i,ele in enumerate(Elements):
+            print(f'Generating EoM for Element {i+1} out of {len(Elements)} - {ele}')
+            sm += ele.to_symbolic_model_2()
+        
+        return cls(q,sm.M,sm.f,sm.T,sm.U,ExtForces,C)
+
     def __init__(self,q,M,f,T,U,ExtForces = None,C = sym.Matrix([])):
         """Initialise a Symbolic model of the form 
         $M\ddot{q}+f(\dot{q},q,t)-ExtForces(\dot{q},q,t) = 0, with constraints C=0$
@@ -284,7 +303,7 @@ class SymbolicModel:
         return (cls(M,f,T,U,ExtForce,C),p)
 
 
-    def to_matlab_class(self,p,file_dir,class_name,base_class = None,additional_funcs = []):
+    def to_matlab_class(self,p,file_dir,class_name,base_class = None,additional_funcs = [], octave_user_functions={}):
         funcs = [('get_M',self.M),('get_f',self.f),('get_Q',self.ExtForces.Q()),
                 ('get_KE',self.T),('get_PE',self.U)]
         funcs = [*funcs,*additional_funcs]
@@ -305,31 +324,31 @@ class SymbolicModel:
             funcs.append(('get_M_lag',M_lag))
             funcs.append(('get_Q_lag',Q_lag))
         # create directory
-        class_dir = file_dir+f"@{class_name}\\"
+        class_dir = os.path.join(file_dir,f"@{class_name}")
         if not os.path.exists(class_dir):
             os.mkdir(class_dir)
         for func_name,matrix in funcs:
-            with open(class_dir+f"{func_name}.m",'w') as file:
-                file.write(self._gen_octave(matrix,func_name))
+            with open(os.path.join(class_dir,f"{func_name}.m"),'w') as file:
+                file.write(self._gen_octave(matrix,func_name,octave_user_functions))
         p.to_matlab_class(class_name=class_name, file_dir=class_dir, base_class=base_class )
     
-    def to_matlab_file(self,p,file_dir):
+    def to_matlab_file(self,p,file_dir,octave_user_functions={}):
         funcs = (('get_M',self.M),('get_f',self.f),('get_Q',self.ExtForces.Q()))
         for func_name,matrix in funcs:
-            with open(file_dir+f"{func_name}.m",'w') as file:
-                file.write(self._gen_octave(matrix,func_name))
+            with open(os.path.join(file_dir,f"{func_name}.m"),'w') as file:
+                file.write(self._gen_octave(matrix,func_name,octave_user_functions))
         p.to_matlab_class(file_dir=file_dir)
 
-    def to_matlab_file_linear(self,p,file_dir):
+    def to_matlab_file_linear(self,p,file_dir,octave_user_functions={}):
         mats = self.extract_matrices()
         names = ['A','B','C','D','E']
         funcs = list(zip([f'get_{i}' for i in names],mats))
         for func_name,matrix in funcs:
-            with open(file_dir+f"{func_name}.m",'w') as file:
-                file.write(self._gen_octave(matrix,func_name))
+            with open(os.path.join(file_dir+f"{func_name}.m"),'w') as file:
+                file.write(self._gen_octave(matrix,func_name,octave_user_functions))
         p.to_matlab_class(file_dir=file_dir)
         
-    def _gen_octave(self,expr,func_name):
+    def _gen_octave(self,expr,func_name, user_functions={}):
         # convert states to non-time dependent variable
         U = sym.Matrix(sym.symbols(f'u_:{self.qs*2}'))
         l = dict(zip([*self.q,*self.qd],U))
@@ -367,10 +386,10 @@ class SymbolicModel:
 
         group_string = '%% create common groups\n\t'
         for variable, expression in replacments:
-            group_string +=f'{variable} = {sym.printing.octave.octave_code(expression)};\n\t'
+            group_string +=f'{variable} = {sym.printing.octave.octave_code(expression, user_functions=user_functions)};\n\t'
         
         # convert to octave string and covert states to vector form
-        out = '%% create output vector\n\tout = ' + sym.printing.octave.octave_code(expr)
+        out = '%% create output vector\n\tout = ' + sym.printing.octave.octave_code(expr, user_functions=user_functions)
 
         #convert state vector calls
         my_replace = lambda x: f'U({int(x.group(1))+1})'
@@ -391,6 +410,14 @@ class SymbolicModel:
         # create unknow var string
         unknown_str = '' if not unknown_vars else ','+','.join(sorted([str(i) for i in unknown_vars], key=str))
         signature = f'function out = {func_name}(p,U{unknown_str})\n\t'
+        
+
+        ## tidy params with curly braces in name
+        my_replace = lambda x: f'_{x.group(1)}'
+        param_string = re.sub(r"_\{(?P<index>.+)\}",my_replace,param_string)
+        group_string = re.sub(r"_\{(?P<index>.+)\}",my_replace,group_string)
+        out = re.sub(r"_\{(?P<index>.+)\}",my_replace,out)
+
         octave_string = signature + file_sig + param_string + group_string + out + ';\nend'
         return octave_string
 

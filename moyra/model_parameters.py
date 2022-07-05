@@ -53,6 +53,8 @@ class ModelMatrix(sym.Matrix,ModelValue):
     Wrapper for Sympy Matrix, to inject it with a value attribute
     """
     def __init__(self,string,length,**kwarg):
+        if "value" not in kwarg:
+            kwarg["value"] = [0]*length
         super().__init__(**kwarg)
         self._matrix_symbol = string
     def __new__(cls,string,length,**kwargs):
@@ -123,7 +125,7 @@ class ModelParameters:
         # convert to matlab class string
         cn = class_name if base_class is None else class_name+f" < {base_class}"
         classdef = f'classdef {cn}'
-        params = '\n\t\t'.join([ f'{key} = {value}' for key,value in params.items()])
+        params = '\n\t\t'.join([ f'{key} = {value}' for key,value in params.items()]).replace('{','').replace('}','')
         class_string = classdef + '\n\tproperties\n\t\t' + params + '\n\tend\nend'
         # save to file
         with open(os.path.join(file_dir,class_name + '.m'),'w') as file:

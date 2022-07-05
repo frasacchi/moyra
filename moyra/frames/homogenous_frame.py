@@ -104,6 +104,12 @@ class HomogenousFrame(BaseReferenceFrame):
         H[:3,:3]=sym.rot_axis3(-angle)
         return HomogenousFrame(self.E*H)
 
+    def R_rodriguez(self,vector,angle):
+        H = sym.eye(4)
+        H[:3,:3] += sym.sin(angle)*Wedge(vector) 
+        H[:3,:3] += (1-sym.cos(angle))*Wedge(vector)**2
+        return HomogenousFrame(self.E*H)
+
     def R_rodriguez_params(self,qs):
         H = sym.eye(4)
         qs = sym.Matrix(qs)

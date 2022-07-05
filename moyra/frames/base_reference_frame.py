@@ -14,5 +14,11 @@ class BaseReferenceFrame:
     def transform_point(self,p):
         return self.A*sym.Matrix(list(p))+self.R
 
+    def transform_global_point(self,p):
+        return self.A.T*(sym.Matrix(list(p))-self.R)
+
     def transform_vector(self,v):
         return self.A*sym.Matrix(list(v))
+
+    def transform_global_vector(self,v):
+        return self.A.T*sym.Matrix(list(v))

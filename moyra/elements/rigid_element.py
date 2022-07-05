@@ -21,8 +21,11 @@ class RigidElement(BaseElement):
         self._simplify = simplify
         if isinstance(frame,HomogenousFrame):
             q = q
+            self._idx =  list(range(len(q)))
         elif isinstance(frame,ReferenceFrame):
             q = sym.Matrix([*frame.R,*frame.theta])
+            self._idx = [i for i,v in enumerate(q) if (v.args[0] == t if isinstance(v,sym.Function) else False)]
+            q = sym.Matrix(q[self._idx,:])
         else:
             raise ValueError('Invlaid Transform type')
 
@@ -42,7 +45,7 @@ class RigidElement(BaseElement):
             return 0
         # calculate the K.E
         T = sym.Rational(1,2)*self.qd.T*self.M*self.qd
-        return T[0].expand()
+        return T[0].expand() if self.simplify else T[0]
 
     @property
     @cache
@@ -53,15 +56,16 @@ class RigidElement(BaseElement):
             T = self.frame if sum(self.com_pos)==0 else self.frame.Translate(*self.com_pos)
             Js = T.ManipJacobian(self.q)
             Js = self._trigsimp(Js) if self.simplify else Js
-            Jb = T.InvAdjoint()*Js
-            Jb = self._trigsimp(Jb) if self.simplify else Jb
+            IA = self._trigsimp(T.InvAdjoint()) if self.simplify else T.InvAdjoint()
+            Jb = self._trigsimp(IA*Js) if self.simplify else IA*Js
             M = Jb.T*self.M_e*Jb
         if isinstance(self.frame,ReferenceFrame):
             M_rr = sym.eye(3)*self.M_e[0,0]
             r = Wedge(self.com_pos)
             M_rtheta = -self.M_e[0,0]*self.frame.A*r*self.frame.Gb
             M_thetatheta = self.frame.Gb.T*(self.M_e[3:,3:] + self.M_e[0,0]*r.T*r)*self.frame.Gb
-            M = sym.BlockMatrix([[M_rr,M_rtheta],[M_rtheta.T,M_thetatheta]]).as_explicit()       
+            M = sym.BlockMatrix([[M_rr,M_rtheta],[M_rtheta.T,M_thetatheta]]).as_explicit()   
+        M = M[self._idx,self._idx]    
         return self._trigsimp(M) if self.simplify else M
 
 

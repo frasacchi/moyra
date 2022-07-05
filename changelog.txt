@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Explicit Versioning](https://github.com/exadra37-versioning/explicit-versioning).
 
 
+## [0.2.0b1]
+### Added
+- Started to add support for 'true' Multibody systems where each body has 6 DoF + constriants
+### Changed
+### Deprecated
+### Removed
+### Fixed
+
+
 ## [0.1.5.1]
 ### Added
 - vectorised gravity

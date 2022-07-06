@@ -1,6 +1,4 @@
-from sympy.utilities.lambdify import _EvaluatorPrinter
-from sympy.core.compatibility import (exec_, is_sequence, iterable,
-    NotIterable, builtins)
+from sympy.utilities.iterables import (iterable)
     
 def doprint(self, funcname, args, expr):
         """Returns the function definition code as a string."""

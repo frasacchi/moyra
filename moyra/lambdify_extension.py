@@ -1,4 +1,14 @@
 from sympy.utilities.iterables import (iterable)
+from sympy import Symbol
+class SymbolInterator:
+    def __init__(self):
+        self.num = 0
+    def __iter__(self):
+        return self
+    def __next__(self):
+        self.num = self.num + 1
+        return Symbol(f'rep_{self.num}')
+
     
 def doprint(self, funcname, args, expr):
         """Returns the function definition code as a string."""
@@ -12,7 +22,7 @@ def doprint(self, funcname, args, expr):
         argstrs, expr = self._preprocess(args, expr)
 
         ## --------------- Addition -----------------
-        replacments, exprs = cse(expr,symbols=(Symbol(f'rep_{i}')for i in range(10000)))
+        replacments, exprs = cse(expr,symbols=SymbolInterator())
         if isinstance(expr,tuple):
             expr = tuple(exprs)
         elif isinstance(expr,list):

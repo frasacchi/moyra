@@ -6,9 +6,9 @@ from .model_parameters import ModelParameters,ModelSymbol,ModelMatrix
 class DynamicModelParameters(ModelParameters):
     def __init__(self,DoFs):
         self.qs = DoFs
-        self.q = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}'))
-        self.qd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',1))
-        self.qdd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',2))
+        self.q = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}'),real=True)
+        self.qd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',1),real=True)
+        self.qdd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',2),real=True)
 
         # create state matrix
         self.x = sym.BlockMatrix([[self.q],[self.qd]]).as_explicit()

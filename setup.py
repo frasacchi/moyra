@@ -28,7 +28,7 @@ setup(
     author_email = 'fintan.healy@bristol.ac.uk',
     url='https://github.com/fh9g12/moyra',
     license='MIT',
-    install_requires=['sympy<=1.10','numpy<=1.23','scipy'],
+    install_requires=['sympy','numpy','scipy'],
     setup_requires=['pytest-runner'],
     tests_require=['pytest==4.4.1'],
     test_suite='tests',

@@ -88,15 +88,36 @@ class HomogenousFrame(BaseReferenceFrame):
         H = sym.eye(4)
         H[:3,:3]=A
         return HomogenousFrame(self.E*H)
+    
+    def R_x_small(self,angle,ExpandCosine=True):
+        H = sym.eye(4)
+        H[1,1] = H[2,2] = 1-sym.Rational(1,2)*angle**2 if ExpandCosine else 1
+        H[1,2] = -angle
+        H[2,1] = angle
+        return HomogenousFrame(self.E*H)
 
     def R_x(self,angle):
         H = sym.eye(4)
         H[:3,:3]=sym.rot_axis1(-angle)
         return HomogenousFrame(self.E*H)
+    
+    def R_y_small(self,angle,ExpandCosine=True):
+        H = sym.eye(4)
+        H[0,0] = H[2,2] = 1-sym.Rational(1,2)*angle**2 if ExpandCosine else 1
+        H[0,2] = angle
+        H[2,0] = -angle
+        return HomogenousFrame(self.E*H)
 
     def R_y(self,angle):
         H = sym.eye(4)
         H[:3,:3]=sym.rot_axis2(-angle)
+        return HomogenousFrame(self.E*H)
+    
+    def R_z_small(self,angle,ExpandCosine=True):
+        H = sym.eye(4)
+        H[0,0] = H[1,1] = 1-sym.Rational(1,2)*angle**2 if ExpandCosine else 1
+        H[0,1] = -angle
+        H[1,0] = angle
         return HomogenousFrame(self.E*H)
 
     def R_z(self,angle):

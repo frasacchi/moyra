@@ -13,10 +13,11 @@ from .helper_funcs import linearise_matrix, partial_wrt_t
 from .numeric_model import NumericModel
 import pickle
 from .printing import model as print_model
-from .model_parameters import ModelSymbol, ModelMatrix,ModelMatrixSymbol, ModelValue
+from .model_parameters import ModelSymbol, ModelMatrix,ModelMatrixSymbol, ModelValue, ModelVectorSymbol, ModelVector, VarVector, VarElement, OctaveZero
 from time import time, ctime
 from collections.abc import Iterable
 from sympy.abc import t
+from .lambdify_extension import SymbolInterator
 
 class SymbolicModel:
     """
@@ -34,7 +35,7 @@ class SymbolicModel:
             as 'None'
     """
     @classmethod
-    def FromElementsAndForces(cls,q,Elements, ExtForces=None, C=None):
+    def FromElementsAndForces(cls,q,Elements, ExtForces=None, C=None, legacy=False):
         """
         Create a symbolic Model instance from a set Elements and external forces
         """
@@ -48,26 +49,7 @@ class SymbolicModel:
         Elements = Elements if isinstance(Elements,Iterable) else [Elements]
         for i,ele in enumerate(Elements):
             print(f'Generating EoM for Element {i+1} out of {len(Elements)} - {ele}')
-            sm += ele.to_symbolic_model()
-        
-        return cls(q,sm.M,sm.f,sm.T,sm.U,ExtForces,C)
-
-    @classmethod
-    def FromElementsAndForces_2(cls,q,Elements, ExtForces=None, C=None):
-        """
-        Create a symbolic Model instance from a set Elements and external forces
-        """
-        # Calc K.E, P.E and Rayleigh Dissaptive Function
-        T = U = D = sym.Integer(0)
-        qs = len(q)
-        M = sym.zeros(qs)
-        f = sym.zeros(qs,1)
-        sm = cls(q,M,f,T,U)
-        # add K.E for each Rigid Element
-        Elements = Elements if isinstance(Elements,Iterable) else [Elements]
-        for i,ele in enumerate(Elements):
-            print(f'Generating EoM for Element {i+1} out of {len(Elements)} - {ele}')
-            sm += ele.to_symbolic_model_2()
+            sm += ele.to_symbolic_model(legacy=legacy)
         
         return cls(q,sm.M,sm.f,sm.T,sm.U,ExtForces,C)
 
@@ -332,6 +314,43 @@ class SymbolicModel:
                 file.write(self._gen_octave(matrix,func_name,octave_user_functions))
         p.to_matlab_class(class_name=class_name, file_dir=class_dir, base_class=base_class )
     
+    def to_cxx_class(self,p,file_dir,class_name,base_class = None,additional_funcs = [], additional_includes = [],header_ext='hpp',source_ext = 'cpp',func_pragma=None):
+        funcs = [('get_M',self.M,'MatrixXd'),('get_f',self.f),('get_Q',self.ExtForces.Q()),
+                ('get_KE',self.T),('get_PE',self.U)]
+        funcs = [*funcs,*additional_funcs]
+        if self.C is not None:
+            funcs.append(('get_C',self.C))
+            C_q = sym.simplify(self.C).jacobian(self.q)
+            C_t =  partial_wrt_t(self.C,p.q)
+            C_tt = partial_wrt_t(C_t,p.q)
+            C_qt = partial_wrt_t(C_q,p.q)
+            Q_c = C_tt + (C_q*p.qd).jacobian(p.q)*p.qd + 2*C_qt*p.qd
+            M_lag = sym.BlockMatrix([[self.M,C_q.T],[C_q,sym.zeros(len(self.C))]]).as_explicit()
+            Q_lag = sym.BlockMatrix([[self.f-self.ExtForces.Q()],[Q_c]]).as_explicit()
+
+            funcs.append(('get_C_q',C_q))
+            funcs.append(('get_C_t',C_t))
+            # funcs.append(('get_C_tt',me.msubs(C_tt))
+            funcs.append(('get_Q_c',Q_c))
+            funcs.append(('get_M_lag',M_lag))
+            funcs.append(('get_Q_lag',Q_lag))
+        # create directory
+        class_dir = os.path.join(file_dir,f"{class_name}")
+        func_sigs = []
+        if not os.path.exists(class_dir):
+            os.mkdir(class_dir)
+        for val in funcs:
+            if len(val)==3:
+                func_name,matrix,out_type = val
+            else:
+                func_name,matrix = val
+                out_type = None
+            with open(os.path.join(class_dir,f"{func_name}.{source_ext}"),'w') as file:
+                (cxx_str,cxx_sig) = self._gen_cxx(matrix,func_name,class_name,out_type=out_type,header_ext=header_ext,func_pragma=func_pragma)
+                file.write(cxx_str)
+                func_sigs.append(cxx_sig)
+        p.to_cxx_class(class_name=class_name, file_dir=class_dir, base_class=base_class, func_sigs=func_sigs, additional_includes=additional_includes,header_ext = header_ext,func_pragma=func_pragma)
+
     def to_matlab_file(self,p,file_dir,octave_user_functions={}):
         funcs = (('get_M',self.M),('get_f',self.f),('get_Q',self.ExtForces.Q()))
         for func_name,matrix in funcs:
@@ -348,6 +367,98 @@ class SymbolicModel:
                 file.write(self._gen_octave(matrix,func_name,octave_user_functions))
         p.to_matlab_class(file_dir=file_dir)
         
+    def _gen_cxx(self,expr,func_name,class_name=None,out_type=None,header_ext='hpp',func_pragma = None):
+        # convert states to non-time dependent variable
+        U = ModelVector(string='U',length=int(self.qs*2))
+        l = dict(zip([*self.q,*self.qd],U))
+        l_deriv = dict(zip(self.q.diff(t),self.qd))
+        expr = me.msubs(expr,l_deriv)
+        expr = me.msubs(expr,l)
+
+        # get parameter replacements
+        param_string = '// extract required parameters from structure\n\t'
+        unknown_vars = []
+        for var in expr.free_symbols:
+            if isinstance(var,ModelValue):
+                pass
+            elif var not in U:
+                print(f'Unknown variable {var} found in function {func_name}. It will be added to the function signature.')
+                if isinstance(var,sym.matrices.expressions.matexpr.MatrixSymbol):
+                    unknown_vars.append((var,'VectorXd'))
+                elif isinstance(var,sym.matrices.dense.MutableDenseMatrix):
+                    unknown_vars.append((var,'VectorXd'))
+                else:
+                    unknown_vars.append((var,'double'))
+
+
+        # split expr into groups
+        replacments, exprs = sym.cse(expr,symbols=SymbolInterator())
+        if isinstance(expr,tuple):
+            expr = tuple(exprs)
+        elif isinstance(expr,list):
+            expr = exprs
+        else:
+            expr = exprs[0]      
+
+        group_string = '// create common groups\n\t'
+        for variable, expression in replacments:
+            group_string +=f'double {variable} = {sym.printing.cxxcode(expression)};\n\t'
+        
+        # convert to octave string and covert states to vector form
+        out = '// create output vector\n\t'
+        
+        if isinstance(expr,sym.matrices.dense.MutableDenseMatrix):
+            numel = 1
+            shape = expr.shape
+            for i in range(len(shape)):
+                numel *= shape[i]
+            if shape[1] == 1 and out_type != 'MatrixXd':
+                out_type = f'VectorXd'
+                out += f'{out_type} out = {out_type}({shape[0]});\n\t'
+            else:
+                out_type = f'MatrixXd'
+                out += f'{out_type} out = {out_type}({shape[0]},{shape[1]});\n\t'                    
+            for j in range(shape[0]):
+                for k in range(shape[1]):
+                    out += f'\n\tout({j},{k}) = ' + sym.printing.cxxcode(expr[j,k]) + ';'
+        else:
+            out += 'double out = ' + sym.printing.cxxcode(expr) + ';'
+            out_type = 'double'
+        out += '\n\treturn out;'
+
+        file_sig = f'// {func_name.upper()} Auto-generated function from moyra\n\t'
+        file_sig += f'// \n\t'
+        file_sig += f'// \tCreated at : {ctime(time())} \n\t'
+        file_sig += f'// \tCreated with : moyra https://pypi.org/project/moyra/\n\t'
+        file_sig += f'// \n\t'
+
+        # wrap output in octave function signature
+        # create unknow var string
+        unknown_str = '' if not unknown_vars else ','+','.join(sorted([ty + ' &' + str(i) for (i,ty) in unknown_vars], key=str))
+        class_func_name = func_name if class_name is None else f'{class_name}::{func_name}'
+        signature = f'{out_type} {class_func_name}(VectorXd &U{unknown_str}){{\n\t'
+        signature = signature if func_pragma is None else f'{func_pragma} {signature}'
+        includes = []
+        if class_name is not None:
+            includes.append(f'{class_name}.{header_ext}')
+        if not includes:
+            includes = ''
+        else:
+            includes = ''.join(('#include "'+i+'"\n' for i in includes))
+        
+        ## tidy params with curly braces in name
+        # my_replace = lambda x: f'_{x.group(1)}'
+        # param_string = re.sub(r"_\{(?P<index>.+)\}",my_replace,param_string)
+        # group_string = re.sub(r"_\{(?P<index>.+)\}",my_replace,group_string)
+        # out = re.sub(r"_\{(?P<index>.+)\}",my_replace,out)
+
+        cxx_string = includes + '\n' + signature + file_sig + param_string + group_string + out + '\n};'
+        
+        signature = f'{out_type} {func_name}(VectorXd &U{unknown_str})'
+        signature = signature if func_pragma is None else f'{func_pragma} {signature}'
+        return (cxx_string,signature)
+
+        
     def _gen_octave(self,expr,func_name, user_functions={}):
         # convert states to non-time dependent variable
         U = sym.Matrix(sym.symbols(f'u_:{self.qs*2}'))
@@ -360,23 +471,27 @@ class SymbolicModel:
         param_string = '%% extract required parameters from structure\n\t'
         matries = []
         unknown_vars = []
+        varVector = []
+        isVarVector = False
         for var in expr.free_symbols:
             if isinstance(var,ModelValue):
-                if isinstance(var,ModelMatrixSymbol):
+                if isinstance(var,ModelMatrixSymbol) or isinstance(var,ModelVectorSymbol):
                     if var._matrix not in matries:
                         param_string += f'{var._matrix} = p.{var._matrix};\n\t'
                         matries.append(var._matrix)
                 elif isinstance(var,ModelSymbol):
                     param_string += f'{var.name} = p.{var.name};\n\t'
-                elif isinstance(var,ModelMatrix):
+                elif isinstance(var,ModelMatrix) or isinstance(var,ModelVector):
                     param_string += f'{var._matrix_symbol} = p.{var._matrix_symbol};\n\t'
             elif var not in U:
-                print(f'Unknown variable {var} found in function {func_name}. It will be added to the function signature.')
                 unknown_vars.append(var)
-
+                if isinstance(var,VarVector):
+                    isVarVector = True
+                    varVector = var
+                print(f'Unknown variable {var} found in function {func_name}. It will be added to the function signature.')
 
         # split expr into groups
-        replacments, exprs = sym.cse(expr,symbols=(sym.Symbol(f'rep_{i}')for i in range(10000)))
+        replacments, exprs = sym.cse(expr,symbols=SymbolInterator())
         if isinstance(expr,tuple):
             expr = tuple(exprs)
         elif isinstance(expr,list):
@@ -389,6 +504,11 @@ class SymbolicModel:
             group_string +=f'{variable} = {sym.printing.octave.octave_code(expression, user_functions=user_functions)};\n\t'
         
         # convert to octave string and covert states to vector form
+        if isVarVector:
+            if isinstance(expr,sym.matrices.dense.MutableDenseMatrix):
+                for i in range(len(expr)):
+                    if isinstance(expr[i],sym.core.numbers.Number) or isinstance(expr[i],sym.core.numbers.One):
+                        expr[i] = varVector[0]*OctaveZero('z') + expr[i]                
         out = '%% create output vector\n\tout = ' + sym.printing.octave.octave_code(expr, user_functions=user_functions)
 
         #convert state vector calls
@@ -397,7 +517,7 @@ class SymbolicModel:
         group_string = re.sub(r"u_(?P<index>\d+)",my_replace,group_string)
 
         # make the file pretty...
-        out = out.replace(',',',...\n\t\t').replace(';',';...\n\t\t')
+        out = out.replace(';',';...\n\t\t')
 
         file_sig = f'%{func_name.upper()} Auto-generated function from moyra\n\t'
         file_sig += f'%\n\t'

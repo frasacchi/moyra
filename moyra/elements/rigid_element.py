@@ -16,7 +16,11 @@ class RigidElement(BaseElement):
     def __init__(self, q, frame, M, grav_vec=sym.Matrix([0]*3), com_pos=[0,0,0], simplify=True, name = "default", alt_method=False):
         self._grav_vec = grav_vec
         self._frame = frame
-        self._M_e = M
+        if M.shape == (6,6):
+            self._M_e = M
+        else:
+            raise ValueError('Invlaid Mass matrix')
+        # self._M_e = M
         self._com_pos = com_pos
         self._simplify = simplify
         self._alt_method = alt_method

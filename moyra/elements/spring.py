@@ -15,5 +15,8 @@ class Spring(BaseElement):
     @property
     @cache
     def pe(self):
-        return sym.Rational(1,2)*self.__k*self.__z**2
+        if isinstance(self.__k,sym.Function):
+            return self.__k
+        else:
+            return sym.Rational(1,2)*self.__k*self.__z**2
         

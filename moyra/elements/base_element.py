@@ -2,7 +2,7 @@ from functools import cache
 import warnings
 import sympy as sym
 from sympy.abc import t
-
+import sympy.physics.mechanics as me
 from moyra.symbolic_model import SymbolicModel
 
 class BaseElement:
@@ -49,10 +49,12 @@ class BaseElement:
         D = sym.Matrix([self.rdf])
         # legacy method is a lot slower but can produce more compact results
         Q_v = (self.M.diff(t))*self.qd if not legacy else Lag.jacobian(self.qd).diff(t).T
+        M = self.M if not legacy else Q_v.jacobian(self.qdd).T
+        Q_v = Q_v if not legacy else me.msubs(Q_v,{i:0 for i in self.qdd})
         term_2 = Lag.jacobian(self.q).T
         term_3 = D.jacobian(self.qd).T
         f = Q_v - term_2 + term_3
-        return SymbolicModel(self.q,self.M,f,self.ke,self.pe)      
+        return SymbolicModel(self.q,M,f,self.ke,self.pe)      
 
     @property
     def elementname(self):

@@ -44,7 +44,10 @@ class ExternalForce:
         return ExternalForce(me.msubs(self._Q,*args))
 
     def cancel(self):
-        return ExternalForce(sym.cancel(self._Q))  
+        return ExternalForce(sym.cancel(self._Q))
+    
+    def simplify(self):
+        return ExternalForce(sym.simplify(self._Q))
 
     def expand(self):
         return ExternalForce(sym.expand(self._Q))  

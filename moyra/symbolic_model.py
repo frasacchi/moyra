@@ -55,7 +55,7 @@ class SymbolicModel:
 
     def __init__(self,q,M,f,T,U,ExtForces = None,C = sym.Matrix([])):
         """Initialise a Symbolic model of the form 
-        $M\ddot{q}+f(\dot{q},q,t)-ExtForces(\dot{q},q,t) = 0, with constraints C=0$
+        $M\\ddot{q}+f(\\dot{q},q,t)-ExtForces(\\dot{q},q,t) = 0, with constraints C=0$
 
         with the Symbolic Matricies M,f,and Extforces
         """
@@ -102,6 +102,19 @@ class SymbolicModel:
         C = sym.Matrix([*self.C,*other.C])
 
         return SymbolicModel(self.q,M,f,T,U,ExternalForce(Q),C)
+
+    def simplify(self):
+        """
+        Creates a new instance of a Symbolic model with the simplify simplifcation applied
+        """
+        ExtForces = self.ExtForces.simplify() if self.ExtForces is not None else None
+
+        # handle zero kinetic + pot energies
+        T = self.T if isinstance(self.T,int) else sym.simplify(self.T)
+        U = self.U if isinstance(self.U,int) else sym.simplify(self.U)
+        C = self.C if self.C is None else sym.simplify(self.C)
+        return SymbolicModel(self.q,sym.simplify(self.M),sym.simplify(self.f),
+                            T,U,ExtForces,C)        
 
     def cancel(self):
         """
@@ -186,7 +199,7 @@ class SymbolicModel:
     def extract_matrices(self):
         """
         From the current symbolic model extacts the classic matrices A,B,C,D,E as per the equation below
-        A \ddot{q} + B\dot{q} + Cq = D\dot{q} + Eq
+        A \\ddot{q} + B\\dot{q} + Cq = D\\dot{q} + Eq
 
         THE SYSTEM MUST BE LINEARISED FOR THIS TO WORK
         """

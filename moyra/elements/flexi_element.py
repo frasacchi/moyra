@@ -10,9 +10,10 @@ from sympy.physics.mechanics import msubs,dot
 from collections.abc import Iterable
 
 class FlexiElement(BaseElement):
-    def __init__(self,q,frame,density,S,x_integral,y_integral,x_f,q_f,EI,GJ,grav_vec=sym.Matrix([0]*3) ,simplify=True, name="default"):
+    def __init__(self,q,frame,density,S,x_integral,y_integral,x_f,q_f,EI,GJ,grav_vec=sym.Matrix([0]*3) ,simplify=True, name="default", K=0):
         self._EI = EI
         self._GJ = GJ
+        self._K = K
         self._x_f = x_f
         self._x_integral = x_integral
         self._y_integral = y_integral
@@ -38,6 +39,7 @@ class FlexiElement(BaseElement):
     y = property(lambda self: self.y_integral[0])
     EI = property(lambda self: self._EI)
     GJ = property(lambda self: self._GJ)
+    K = property(lambda self: self._K)
     x_f = property(lambda self: self._x_f)
     x_integral = property(lambda self: self._x_integral)
     y_integral = property(lambda self: self._y_integral)
@@ -77,14 +79,21 @@ class FlexiElement(BaseElement):
     def elastic_pe(self):
         # Bending Potential Energy per unit length
         U_e = 0
-        if isinstance(self.EI, sym.Expr) or self.EI != 0:
-            v = msubs(self.u_f,{self.x:self.x_f}).diff(self.y,self.y)
-            U_e += self._trigsimp((v.T*v))[0]*self.EI*sym.Rational(1,2)
+        v_y = msubs(self.u_f,{self.x:self.x_f}).diff(self.y,self.y)
+        v_theta = msubs(self.u_f.diff(self.x),{self.x:self.x_f}).diff(self.y)
 
+        # Bending P.E per unit length
+        if isinstance(self.EI, sym.Expr) or self.EI != 0:
+            U_e += self._trigsimp((v_y.T*v_y))[0]*self.EI*sym.Rational(1,2)
+            
         # Torsional P.E per unit length
         if isinstance(self.GJ, sym.Expr) or self.GJ != 0:
-            v = msubs(self.u_f.diff(self.x),{self.x:self.x_f}).diff(self.y)
-            U_e += self._trigsimp((v.T*v))[0]*self.GJ*sym.Rational(1,2)
+            U_e += self._trigsimp((v_theta.T*v_theta))[0]*self.GJ*sym.Rational(1,2)
+
+        # Cross Coupling P.E per unit length
+        if isinstance(self.K, sym.Expr) or self.K != 0:
+            U_e -= self._trigsimp((v_y.T*v_theta))[0]*self.K*sym.Rational(1,2)
+            U_e -= self._trigsimp((v_theta.T*v_y))[0]*self.K*sym.Rational(1,2)
 
         return U_e.integrate(self.y_integral) if isinstance(U_e, sym.Expr) else U_e
     

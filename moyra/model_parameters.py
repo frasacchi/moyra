@@ -171,6 +171,7 @@ class ModelParameters:
         import os.path
         # create a dict of all required params and values
         params = {}
+        params['DoFs'] = [self.qs,'Number of DoFs']
         for name,var in vars(self).items():
             if name not in ignore and var not in ignore:
                 if isinstance(var,ModelSymbol):

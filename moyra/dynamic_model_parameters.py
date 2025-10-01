@@ -6,16 +6,12 @@ from .model_parameters import ModelParameters,ModelSymbol,ModelMatrix
 class DynamicModelParameters(ModelParameters):
     def __init__(self,DoFs):
         self.qs = DoFs
-        self.q = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}'))
-        self.qd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',1))
-        self.qdd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',2))
+        self.q = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}'),real=True)
+        self.qd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',1),real=True)
+        self.qdd = sym.Matrix(me.dynamicsymbols(f'q:{DoFs}',2),real=True)
 
         # create state matrix
-        x_ls = []
-        for i in range(0,DoFs):
-            x_ls.append(self.q[i])
-            x_ls.append(self.qd[i])
-        self.x = sym.Matrix(x_ls)
+        self.x = sym.BlockMatrix([[self.q],[self.qd]]).as_explicit()
         super().__init__()
 
     def print_python(self):
@@ -34,10 +30,10 @@ class DynamicModelParameters(ModelParameters):
                     else:
                         string += f'\np.{name} = ma.ModelMatrix(value={value.value}, string=\'{value._matrix_symbol}\', length={len(value)})'
                 elif isinstance(value,sym.Symbol):
-                    string += f'\np.{name} = sym.Symbol(\'{value.name}\')'
+                    string += f'\np.{name} = Symbol(\'{value.name}\')'
         return string
 
     def to_file(self,filename,file_dir=''):
-        string = 'import moyra as ma\n\ndef get_p():\n\t' + self.print_python().replace('\n','\n\t') + '\n\treturn p\n'
+        string = 'import moyra as ma\nfrom sympy import *\n\ndef get_p():\n\t' + self.print_python().replace('\n','\n\t') + '\n\treturn p\n'
         with open(os.path.join(file_dir,filename),'w') as file:
             file.write(string)

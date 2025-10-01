@@ -1,38 +1,29 @@
 # from sympy.utilities.lambdify import _EvaluatorPrinter
-# from sympy.core.compatibility import (is_sequence, iterable,
-#     NotIterable)
+# from sympy.utilities.iterables import is_sequence, iterable
+# from sympy.core.compatibility import NotIterable
 # import builtins
 
 from sympy.utilities.lambdify import _EvaluatorPrinter
-from sympy.utilities.iterables import is_sequence, iterable
-from sympy.core.compatibility import NotIterable
-import builtins
-
+from sympy.core.compatibility import (exec_, is_sequence, iterable,
+    NotIterable, builtins)
+    
 def doprint(self, funcname, args, expr):
         """Returns the function definition code as a string."""
-        # Created by lambdify in sympy.utilities.lambdify
-        from sympy.utilities.lambdify import StringIO, _is_safe_int
+        from sympy import Dummy,cse,Symbol
 
-        func_body = []
+        funcbody = []
 
-        # Generate argument list
-        arg_list = []
-        for arg in args:
-            if iterable(arg):
-                arg_list.append(self._print(arg))
-            else:
-                arg_list.append(self.dummy_name(arg))
-        arg_list = ", ".join(arg_list)
+        if not iterable(args):
+            args = [args]
 
-        # Generate function body
-        if self.cse:
-            sub_expressions, simplified_expr = self._cse(expr)
-            for var, sub_expr in sub_expressions:
-                func_body.append("  %s = %s" % (var, self._print(sub_expr)))
-            expr = simplified_expr[0]
+        argstrs, expr = self._preprocess(args, expr)
 
-        if self.use_imps:
-            func_body.append("  return (%s)" % self._print(expr))
+        ## --------------- Addition -----------------
+        replacments, exprs = cse(expr,symbols=(Symbol(f'rep_{i}')for i in range(10000)))
+        if isinstance(expr,tuple):
+            expr = tuple(exprs)
+        elif isinstance(expr,list):
+            expr = exprs
         else:
             result = self._print(expr)
             if result.startswith('(') and result.endswith(')'):

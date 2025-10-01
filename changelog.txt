@@ -1,0 +1,60 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Explicit Versioning](https://github.com/exadra37-versioning/explicit-versioning).
+
+
+
+
+## [0.4.0]
+### Added
+- Bend twist coupling for flexible beam elements
+### Changed
+### Deprecated
+### Removed
+### Fixed
+
+## [0.2.0b1]
+### Added
+- Started to add support for 'true' Multibody systems where each body has 6 DoF + constriants
+### Changed
+### Deprecated
+### Removed
+### Fixed
+
+
+## [0.1.5.1]
+### Added
+- vectorised gravity
+### Changed
+### Deprecated
+### Removed
+### Fixed
+
+## [0.1.5.0]
+### Added
+- added optional flag on the 'BodyForce' constructor to coose whether to 
+    simplify the resulting expresion
+### Changed
+- updated octave / python print methods to utilise common sub expersion 
+    decompositon. This significantly increase the performance of the generated 
+    EoMs
+### Deprecated
+### Removed
+### Fixed
+
+## [0.1.4.2] - 2021-04-07
+### Added
+- first commit to moyra: this software was created to easily create the EoMs of
+    basic nonlinear aeroelastic systems using the symbolic library sympy
+- added methods the create multibody elements and forces and create the EoMs via
+    the Euler-Lagrange method
+- support to generate forces from basic strip theory
+- ability to print the generated symbolic EoMs to either numpy or MATLAB/Octave 
+    to use the EoM with numerical methods
+### Changed
+### Deprecated
+### Removed
+### Fixed

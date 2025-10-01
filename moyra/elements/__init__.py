@@ -3,3 +3,5 @@ from .flexi_element import FlexiElement
 from .mass_matrix import MassMatrix
 from .spring import Spring
 from .damper import Damper
+from .modal_element import ModalElement
+from .custom import Custom

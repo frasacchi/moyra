@@ -1,54 +1,46 @@
+# from sympy.utilities.lambdify import _EvaluatorPrinter
+# from sympy.core.compatibility import (is_sequence, iterable,
+#     NotIterable)
+# import builtins
+
 from sympy.utilities.lambdify import _EvaluatorPrinter
-from sympy.core.compatibility import (exec_, is_sequence, iterable,
-    NotIterable, builtins)
-    
+from sympy.utilities.iterables import is_sequence, iterable
+from sympy.core.compatibility import NotIterable
+import builtins
+
 def doprint(self, funcname, args, expr):
         """Returns the function definition code as a string."""
-        from sympy import Dummy,cse,Symbol
+        # Created by lambdify in sympy.utilities.lambdify
+        from sympy.utilities.lambdify import StringIO, _is_safe_int
 
-        funcbody = []
+        func_body = []
 
-        if not iterable(args):
-            args = [args]
-
-        argstrs, expr = self._preprocess(args, expr)
-
-        ## --------------- Addition -----------------
-        replacments, exprs = cse(expr,symbols=(Symbol(f'rep_{i}')for i in range(10000)))
-        if isinstance(expr,tuple):
-            expr = tuple(exprs)
-        elif isinstance(expr,list):
-            expr = exprs
-        else:
-            expr = exprs[0]
-        ## --------------- Addition -----------------
-
-        # Generate argument unpacking and final argument list
-        funcargs = []
-        unpackings = []
-
-        for argstr in argstrs:
-            if iterable(argstr):
-                funcargs.append(self._argrepr(Dummy()))
-                unpackings.extend(self._print_unpacking(argstr, funcargs[-1]))
+        # Generate argument list
+        arg_list = []
+        for arg in args:
+            if iterable(arg):
+                arg_list.append(self._print(arg))
             else:
-                funcargs.append(argstr)
-        arg_vars = ', '.join(funcargs)
-        funcsig = f'def {funcname}({arg_vars}):'
+                arg_list.append(self.dummy_name(arg))
+        arg_list = ", ".join(arg_list)
 
-        # Wrap input arguments before unpacking
-        funcbody.extend(self._print_funcargwrapping(funcargs))
+        # Generate function body
+        if self.cse:
+            sub_expressions, simplified_expr = self._cse(expr)
+            for var, sub_expr in sub_expressions:
+                func_body.append("  %s = %s" % (var, self._print(sub_expr)))
+            expr = simplified_expr[0]
 
-        funcbody.extend(unpackings)
+        if self.use_imps:
+            func_body.append("  return (%s)" % self._print(expr))
+        else:
+            result = self._print(expr)
+            if result.startswith('(') and result.endswith(')'):
+                func_body.append("  return %s" % result)
+            else:
+                func_body.append("  return (%s)" % result)
 
-        ## --------------- Addition -----------------
-        for variable, expression in replacments:
-            funcbody.append(f'{variable} = {self._exprrepr(expression)}')
-        ## --------------- Addition -----------------
+        # Generate function definition
+        func_head = "def %s(%s):" % (funcname, arg_list)
 
-        funcbody.append('return ({})'.format(self._exprrepr(expr)))
-
-        funclines = [funcsig]
-        funclines.extend('    ' + line for line in funcbody)
-
-        return '\n'.join(funclines) + '\n'
+        return "\n".join([func_head] + func_body)

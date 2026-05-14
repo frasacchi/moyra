@@ -17,7 +17,24 @@ from .model_parameters import ModelSymbol, ModelMatrix,ModelMatrixSymbol, ModelV
 from time import time, ctime
 from collections.abc import Iterable
 from sympy.abc import t
-from .lambdify_extension import SymbolInterator
+from sympy.utilities.iterables import numbered_symbols
+
+
+# ---------------------------------------------------------------------------
+# Module-level picklable workers for parallel methods
+# (Must live at module scope so ProcessPoolExecutor can pickle them on Windows)
+# ---------------------------------------------------------------------------
+
+def _parallel_simplify_entry(expr):
+    """Simplify a single sympy expression in a worker process."""
+    import sympy as sym
+    return sym.simplify(expr)
+
+
+def _parallel_element_eom(args):
+    """Compute to_symbolic_model() for one element in a worker process."""
+    ele, legacy = args
+    return ele.to_symbolic_model(legacy=legacy)
 
 class SymbolicModel:
     """
@@ -50,8 +67,46 @@ class SymbolicModel:
         for i,ele in enumerate(Elements):
             print(f'Generating EoM for Element {i+1} out of {len(Elements)} - {ele}')
             sm += ele.to_symbolic_model(legacy=legacy)
-        
+
         return cls(q,sm.M,sm.f,sm.T,sm.U,ExtForces,C)
+
+    @classmethod
+    def FromElementsAndForces_parallel(cls, q, Elements, ExtForces=None, C=None,
+                                       legacy=False, workers=None):
+        """Parallel version of FromElementsAndForces.
+
+        Each element's equations of motion are generated concurrently in
+        separate worker processes (one per element up to *workers* CPUs).
+        Results are combined in the main process after all workers finish.
+
+        Parameters
+        ----------
+        workers : int or None
+            Maximum number of worker processes.  None uses os.cpu_count().
+
+        Notes
+        -----
+        Elements and the SymbolicModel they produce must be picklable.
+        Spring/Damper/RigidElement/NonLinearElement all satisfy this.
+        Run inside ``if __name__ == '__main__':`` when using a plain script
+        (not required in Jupyter notebooks).
+        """
+        from concurrent.futures import ProcessPoolExecutor
+
+        Elements = Elements if isinstance(Elements, Iterable) else [Elements]
+        n = len(Elements)
+        print(f'Generating EoM for {n} elements in parallel (workers={workers or os.cpu_count()})...')
+        args = [(ele, legacy) for ele in Elements]
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            results = list(ex.map(_parallel_element_eom, args))
+
+        qs = len(q)
+        sm = cls(q, sym.zeros(qs), sym.zeros(qs, 1), sym.Integer(0), sym.Integer(0))
+        for i, result in enumerate(results):
+            print(f'  combining element {i+1}/{n}: {Elements[i]}')
+            sm += result
+
+        return cls(q, sm.M, sm.f, sm.T, sm.U, ExtForces, C)
 
     def __init__(self,q,M,f,T,U,ExtForces = None,C = sym.Matrix([])):
         """Initialise a Symbolic model of the form 
@@ -114,7 +169,39 @@ class SymbolicModel:
         U = self.U if isinstance(self.U,int) else sym.simplify(self.U)
         C = self.C if self.C is None else sym.simplify(self.C)
         return SymbolicModel(self.q,sym.simplify(self.M),sym.simplify(self.f),
-                            T,U,ExtForces,C)        
+                            T,U,ExtForces,C)
+
+    def simplify_parallel(self, workers=None):
+        """Parallel version of simplify() — each matrix entry simplified concurrently.
+
+        Uses multiprocessing (one worker process per entry up to *workers* CPUs).
+        Typical speed-up for an n-DOF model: close to min(n², cpu_count) × on
+        the M matrix and n × on the f vector.
+
+        Parameters
+        ----------
+        workers : int or None
+            Maximum worker processes.  None uses os.cpu_count().
+
+        Notes
+        -----
+        Run inside ``if __name__ == '__main__':`` when using a plain script.
+        In Jupyter notebooks no guard is needed.
+        """
+        from concurrent.futures import ProcessPoolExecutor
+
+        def _par_mat(mat):
+            flat = [mat[i, j] for i in range(mat.rows) for j in range(mat.cols)]
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                simplified = list(ex.map(_parallel_simplify_entry, flat))
+            return sym.Matrix(simplified).reshape(mat.rows, mat.cols)
+
+        T = self.T if isinstance(self.T, int) else sym.simplify(self.T)
+        U = self.U if isinstance(self.U, int) else sym.simplify(self.U)
+        ExtForces = self.ExtForces.simplify() if self.ExtForces is not None else None
+        C = self.C if self.C is None else sym.simplify(self.C)
+        print(f'Simplifying M ({self.M.rows}×{self.M.cols}) and f ({self.f.rows}×1) in parallel...')
+        return SymbolicModel(self.q, _par_mat(self.M), _par_mat(self.f), T, U, ExtForces, C)
 
     def cancel(self):
         """
@@ -389,29 +476,14 @@ class SymbolicModel:
         expr = me.msubs(expr,l)
 
         # get parameter replacements
-        param_string = '// extract required parameters from structure\n\t'
-        unknown_vars = []
-        for var in expr.free_symbols:
-            if isinstance(var,ModelValue):
-                pass
-            elif var not in U:
-                print(f'Unknown variable {var} found in function {func_name}. It will be added to the function signature.')
-                if isinstance(var,sym.matrices.expressions.matexpr.MatrixSymbol):
-                    unknown_vars.append((var,'VectorXd'))
-                elif isinstance(var,sym.matrices.dense.MutableDenseMatrix):
-                    unknown_vars.append((var,'VectorXd'))
-                else:
-                    unknown_vars.append((var,'double'))
-
-
         # split expr into groups
-        replacments, exprs = sym.cse(expr,symbols=SymbolInterator())
+        replacments, exprs = sym.cse(expr,symbols=numbered_symbols())
         if isinstance(expr,tuple):
             expr = tuple(exprs)
         elif isinstance(expr,list):
             expr = exprs
         else:
-            expr = exprs[0]      
+            expr = exprs[0]            
 
         group_string = '// create common groups\n\t'
         for variable, expression in replacments:
@@ -504,7 +576,7 @@ class SymbolicModel:
                 print(f'Unknown variable {var} found in function {func_name}. It will be added to the function signature.')
 
         # split expr into groups
-        replacments, exprs = sym.cse(expr,symbols=SymbolInterator())
+        replacments, exprs = sym.cse(expr,symbols=numbered_symbols())
         if isinstance(expr,tuple):
             expr = tuple(exprs)
         elif isinstance(expr,list):

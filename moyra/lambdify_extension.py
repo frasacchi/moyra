@@ -1,11 +1,6 @@
-# from sympy.utilities.lambdify import _EvaluatorPrinter
-# from sympy.utilities.iterables import is_sequence, iterable
-# from sympy.core.compatibility import NotIterable
-# import builtins
-
 from sympy.utilities.lambdify import _EvaluatorPrinter
-from sympy.core.compatibility import (exec_, is_sequence, iterable,
-    NotIterable, builtins)
+from sympy.utilities.iterables import iterable
+import builtins
     
 def doprint(self, funcname, args, expr):
         """Returns the function definition code as a string."""

@@ -34,7 +34,7 @@ class FlexiElement(BaseElement):
         self._grav_vec = sym.Matrix(grav_vec)
         self._density = density
         self._simplify = simplify
-    
+
     x = property(lambda self: self.x_integral[0])
     y = property(lambda self: self.y_integral[0])
     EI = property(lambda self: self._EI)
@@ -45,16 +45,23 @@ class FlexiElement(BaseElement):
     y_integral = property(lambda self: self._y_integral)
     q_f = property(lambda self: self._q_f)
     S = property(lambda self: self._S)
-    frame = property(lambda self: self._frame)
     grav_vec = property(lambda self: self._grav_vec)
     density = property(lambda self: self._density)
     simplify = property(lambda self: self._simplify)
+
+    def _get_frame(self):
+        return self._frame
+
+    def _set_frame(self, value):
+        self._frame = value
+
+    frame = property(_get_frame, _set_frame)
 
     @property
     @cache
     def u_0(self):
         return sym.Matrix([self.x,self.y,0])
-        
+
     @property
     @cache
     def u_f(self):
@@ -65,10 +72,9 @@ class FlexiElement(BaseElement):
     def ke(self):
         if self.density==0:
             return 0
-        # calculate the K.E
         T = sym.Rational(1,2)*self.qd.T*self.M*self.qd
         return T[0].expand()
-    
+
     @property
     @cache
     def pe(self):
@@ -77,36 +83,39 @@ class FlexiElement(BaseElement):
     @property
     @cache
     def elastic_pe(self):
-        # Bending Potential Energy per unit length
         U_e = 0
         v_y = msubs(self.u_f,{self.x:self.x_f}).diff(self.y,self.y)
         v_theta = msubs(self.u_f.diff(self.x),{self.x:self.x_f}).diff(self.y)
 
-        # Bending P.E per unit length
+        # Out-of-plane bending P.E per unit length
         if isinstance(self.EI, sym.Expr) or self.EI != 0:
-            U_e += self._trigsimp((v_y.T*v_y))[0]*self.EI*sym.Rational(1,2)
-            
+            strain_ob = v_y[2]**2
+            U_e += (sym.expand(strain_ob) if self.simplify else strain_ob)*self.EI*sym.Rational(1,2)
+
         # Torsional P.E per unit length
         if isinstance(self.GJ, sym.Expr) or self.GJ != 0:
-            U_e += self._trigsimp((v_theta.T*v_theta))[0]*self.GJ*sym.Rational(1,2)
+            strain_t = (v_theta.T*v_theta)[0]
+            U_e += (sym.expand(strain_t) if self.simplify else strain_t)*self.GJ*sym.Rational(1,2)
 
-        # Cross Coupling P.E per unit length
+        # Bending-torsion cross coupling P.E per unit length
         if isinstance(self.K, sym.Expr) or self.K != 0:
-            U_e -= self._trigsimp((v_y.T*v_theta))[0]*self.K*sym.Rational(1,2)
-            U_e -= self._trigsimp((v_theta.T*v_y))[0]*self.K*sym.Rational(1,2)
+            coupling = (v_y.T*v_theta)[0]
+            coupling_e = sym.expand(coupling) if self.simplify else coupling
+            U_e -= coupling_e*self.K*sym.Rational(1,2)
+            U_e -= coupling_e*self.K*sym.Rational(1,2)
 
         return U_e.integrate(self.y_integral) if isinstance(U_e, sym.Expr) else U_e
-    
+
     @property
     @cache
     def grav_pe(self):
         if (self.grav_vec.T*self.grav_vec)[0] == 0:
             return 0
-        elif isinstance(self.frame,HomogenousFrame):   
+        elif isinstance(self.frame,HomogenousFrame):
             point = self.frame.R
             dmg = -(point.T*self.grav_vec)[0]*self.density
             return dmg.integrate(self.x_integral,self.y_integral) if dmg != 0 else 0
-        elif isinstance(self.frame,ReferenceFrame):  
+        elif isinstance(self.frame,ReferenceFrame):
             g = -self.grav_vec
             mg = self.density.integrate(self.x_integral,self.y_integral)*self.frame.R.T*g
             mg += (self.density*(self.u_0 + self.u_f).T).integrate(self.x_integral,self.y_integral)*self.frame.A.T*g
@@ -122,11 +131,11 @@ class FlexiElement(BaseElement):
     @property
     @cache
     def M(self):
-        # create the jacobian for the mass 
-        if isinstance(self.frame,HomogenousFrame):   
+        if isinstance(self.frame,HomogenousFrame):
             Js = self.frame.ManipJacobian(self.q)
             Jb = self.frame.InvAdjoint()*Js
-            Jb = self._trigsimp(Jb)
+            if self.simplify:
+                Jb = self._trigsimp(Jb)
             M_e = MassMatrix(self.density)
             M = (Jb.T*M_e*Jb).integrate(self.x_integral,self.y_integral)
         elif isinstance(self.frame,ReferenceFrame):
@@ -156,93 +165,105 @@ class FlexiElement(BaseElement):
         return self._trigsimp(M) if self.simplify else M
 
     def _trigsimp(self,expr):
-        return sym.trigsimp(sym.powsimp(sym.cancel(sym.expand(expr))))
+        return sym.trigsimp(sym.expand(expr))
 
     @staticmethod
-    def ShapeFunctions_OBM_IBN_TO(m,n,o,q,y_s,x_s,x_f,factor = 1,type='taylor'):
-        """
-        returns the shape function mAtrix for an assumed shapes beam
-        
-        The function returns a tple of the shape function matrix S and the twist
-         of an assumed shapes beam with 'm' out-of-plane bending shpaes, 'n' 
-         in-plane bending shapes, and 'o' twist shapes, the list 'q' represents the DoF in the order n,m,o 
-        
+    def ShapeFunctions_OBM_TO(m, o, q, y_s, x_s, x_f, factor=1, type='taylor', return_slopes=False):
+        """Returns shape function matrix for a beam with out-of-plane bending and torsion.
+
         Parameters
         ----------
         m : int
             number of out-of-plane bending shapes
-        n : int
-            number of in-plane bending shapes
-        o : int 
-        number of twist shapes
+        o : int
+            number of torsion shapes
         q : list
-            list of DoFs
+            list of DoFs in order [bending..., torsion...]
         y_s : Symbol
-            the y direction of the beam (the beam is integrated along its y direction)
+            spanwise coordinate (beam integrates along y)
         x_s : Symbol
-            the x direction of the beam (XY plane is in plane bending)
+            chordwise coordinate
         x_f : Symbol
-            the location of the flexural axis e.g twist = 0 @ x_s=x_f
+            flexural axis chordwise location (twist = 0 at x_s = x_f)
         factor : int / float / list
-            scaling factor to apply to each DoF. If it is a single number
-            it is applied to all DoFs, otherwise it must be a list equal in
-            length to q
+            scaling factor per DoF (scalar applies to all)
         type : str
-            either 'taylor' or 'cheb' and defines the shape functions used 
-            (talyor series or chebeshev series)
+            'taylor' or 'cheb' polynomial basis
+        return_slopes : bool
+            if True, also returns dS/dx and dS/dy slope matrices
 
         Returns
         -------
-        S:Dense Matrix
-            A 3xlen(q) Matrix which defines the shape functions. Sq = v where v 
-            is a 3x1 vector defining the deformed shape at a given undeformed 
-            x_s and y_s position
-        tau: Sympy Function
-            a function defining the twist along the flexural axis
-         """
-        # ensure q is iterable even if only one element
+        S : Matrix (3 x len(q))
+        tau : Expr   (twist distribution)
+        S_x, S_y : Matrix (optional, only if return_slopes=True)
+        """
         q = q if isinstance(q,Iterable) else [q]
+        _x = sym.Dummy('x_s')
+        _y = sym.Dummy('y_s')
 
-        # check elements in q the same as n+m+o
         qs = len(q)
-        if n+m+o != qs:
-            raise ValueError('the sum of n+m+o must be the same as a length of q')
-        S = sym.zeros(3,qs)
-        # make factor a list the size of n+m
-        if isinstance(factor,int) | isinstance(factor,float):
-            factor = [factor]*(qs)
+        if m + o != qs:
+            raise ValueError('m+o must equal len(q)')
+        S = sym.zeros(3, qs)
 
-        # Out of plane bending
-        for i in range(0,m):
+        if isinstance(factor, int) or isinstance(factor, float):
+            factor = [factor]*qs
+
+        # Out-of-plane bending: z-displacement
+        # Taylor:    y^(2+i)              — satisfies w(0)=0, w'(0)=0
+        # Chebyshev: y^2 * T_i(2y-1)     — maps domain [0,1]→[-1,1] and satisfies both root BCs
+        for i in range(m):
             if type == 'taylor':
-                S[2,i] += y_s**(2+i)*factor[i]
+                S[2,i] += _y**(2+i)*factor[i]
             elif type == 'cheb':
-                S[2,i] += sym.chebyshevt_poly(i,y_s)*factor[i]
+                S[2,i] += _y**2 * sym.chebyshevt_poly(i, 2*_y - 1)*factor[i]
             else:
-                raise ValueError('poly type must be either cheb or taylor')
-        # In-plane bending
-        for i in range(0,n):
-            qi = m+i
+                raise ValueError("type must be 'taylor' or 'cheb'")
+
+        # Torsion: z-displacement with chordwise offset from flexural axis
+        # Taylor:    y^(i+1)              — satisfies tau(0)=0
+        # Chebyshev: y * T_i(2y-1)       — satisfies tau(0)=0, correct domain mapping
+        tau = sym.Integer(0)
+        for i in range(o):
+            qi = i + m
             if type == 'taylor':
-                S[0,qi] += y_s**(2+i)*factor[qi]
+                S[2,qi] += -_y**(i+1)*factor[qi]*(_x - x_f)
+                tau += q[qi]*_y**(i+1)*factor[qi]
             elif type == 'cheb':
-                S[0,qi] += sym.chebyshevt_poly(i,y_s)*factor[qi]
-            else:
-                raise ValueError('poly type must be either cheb or taylor')
-        # Twist
-        tau = 0
-        for i in range(0,o):
-            qi = i+m+n
-            if type == 'taylor':
-                S[2,qi] += -y_s**(i+1)*factor[qi]*(x_s-x_f)
-                tau += q[qi]*y_s**(i+1)*factor[qi]
-            elif type == 'cheb':
-                S[2,qi] += -sym.chebyshevt_poly(i,y_s)*factor[qi]*(x_s-x_f)
-                tau += q[qi]*sym.chebyshevt_poly(i,y_s)*factor[qi]
+                S[2,qi] += -_y * sym.chebyshevt_poly(i, 2*_y - 1)*factor[qi]*(_x - x_f)
+                tau += q[qi]*_y * sym.chebyshevt_poly(i, 2*_y - 1)*factor[qi]
 
-        return sym.simplify(S), sym.simplify(tau)
+        if return_slopes:
+            S_x = S.diff(_x).subs({_x: x_s, _y: y_s})
+            S_y = S.diff(_y).subs({_x: x_s, _y: y_s})
+            S = S.subs({_x: x_s, _y: y_s})
+            tau = tau.subs({_x: x_s, _y: y_s})
+            if type == 'cheb':
+                S_x = sym.expand(S_x)
+                S_y = sym.expand(S_y)
+                S = sym.expand(S)
+                tau = sym.expand(tau)
+            return S, tau, S_x, S_y
 
+        S = S.subs({_x: x_s, _y: y_s})
+        tau = tau.subs({_x: x_s, _y: y_s})
+        if type == 'cheb':
+            S = sym.expand(S)
+            tau = sym.expand(tau)
+        return S, tau
 
-
-
-            
+    @staticmethod
+    def ShapeFunctions_OBM_IBN_TO(m, n, o, q, y_s, x_s, x_f, factor=1, type='taylor', return_slopes=False):
+        """Deprecated — in-plane bending (IBN) has been removed. Use ShapeFunctions_OBM_TO."""
+        import warnings
+        if n != 0:
+            raise ValueError(
+                "In-plane bending (n != 0) is no longer supported. "
+                "Use ShapeFunctions_OBM_TO(m, o, ...) instead."
+            )
+        warnings.warn(
+            "ShapeFunctions_OBM_IBN_TO is deprecated; use ShapeFunctions_OBM_TO(m, o, ...).",
+            DeprecationWarning, stacklevel=2
+        )
+        return FlexiElement.ShapeFunctions_OBM_TO(m, o, q, y_s, x_s, x_f, factor, type, return_slopes)

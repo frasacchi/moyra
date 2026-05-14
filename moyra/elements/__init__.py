@@ -1,5 +1,6 @@
 from .rigid_element import RigidElement
 from .flexi_element import FlexiElement
+from .nonlinear_element import NonLinearElement
 from .mass_matrix import MassMatrix
 from .spring import Spring
 from .damper import Damper

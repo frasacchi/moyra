@@ -6,6 +6,13 @@ import sympy.physics.mechanics as me
 from moyra.helper_funcs import Vee, Vee4, Wedge, Wedge4
 
 
+# Module-level worker — must be at module scope for ProcessPoolExecutor pickling on Windows
+def _simplify_frame_entry(expr):
+    """Simplify a single sympy expression from a frame matrix in a worker process."""
+    import sympy as sym
+    return sym.simplify(expr)
+
+
 class HomogenousFrame(BaseReferenceFrame):
 
     def __init__(self,E=None):
@@ -134,7 +141,7 @@ class HomogenousFrame(BaseReferenceFrame):
     def R_rodriguez_params(self,qs):
         H = sym.eye(4)
         qs = sym.Matrix(qs)
-        R = sym.simplify(sym.eye(3)+2/(1+qs.dot(qs))*(Wedge(qs)+Wedge(qs)*Wedge(qs)))
+        R = sym.eye(3) + 2/(1+qs.dot(qs))*(Wedge(qs) + Wedge(qs)*Wedge(qs))
         H[:3,:3] = R
         return HomogenousFrame(self.E*H)
 
@@ -153,6 +160,35 @@ class HomogenousFrame(BaseReferenceFrame):
 
     def simplify(self):
         return HomogenousFrame(sym.simplify(self.E))
+
+    def simplify_parallel(self, workers=None):
+        """Parallel version of simplify() — each entry of A and R simplified concurrently.
+
+        Only the 12 non-trivial entries of E (the 3×3 rotation block A and the
+        3×1 translation R) are dispatched to worker processes; the constant
+        bottom row [0,0,0,1] is handled in the main process.
+
+        Parameters
+        ----------
+        workers : int or None
+            Maximum worker processes.  None uses os.cpu_count().
+        """
+        from concurrent.futures import ProcessPoolExecutor
+
+        # Collect the 12 non-trivial entries: A (row-major) then R
+        A_flat = [self.A[i, j] for i in range(3) for j in range(3)]
+        R_flat = [self.R[i] for i in range(3)]
+        entries = A_flat + R_flat          # 12 independent sympy expressions
+
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            simplified = list(ex.map(_simplify_frame_entry, entries))
+
+        E = sym.eye(4)
+        for idx, val in enumerate(simplified[:9]):
+            E[idx // 3, idx % 3] = val    # fill A (3×3)
+        for i, val in enumerate(simplified[9:]):
+            E[i, 3] = val                 # fill R (3×1)
+        return HomogenousFrame(E)
 
     def diff(self,*args):  
         return HomogenousFrame(self.E.diff(*args))

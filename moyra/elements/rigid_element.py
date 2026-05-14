@@ -38,8 +38,15 @@ class RigidElement(BaseElement):
     
     M_e = property(lambda self: self._M_e)
     com_pos = property(lambda self: self._com_pos)
-    frame = property(lambda self: self._frame)
     grav_vec = property(lambda self: self._grav_vec)
+
+    def _get_frame(self):
+        return self._frame
+
+    def _set_frame(self, value):
+        self._frame = value
+
+    frame = property(_get_frame, _set_frame)
     simplify = property(lambda self: self._simplify)
     rdf = property(lambda self: 0)
     alt_method = property(lambda self: self._alt_method)
@@ -86,7 +93,8 @@ class RigidElement(BaseElement):
     @cache
     def pe(self):
         point = self.frame.transform_point(self.com_pos)
-        h = -(point.T*self.grav_vec)[0]
+        # h = -(point.T*self.grav_vec)[0]
+        h = -(sym.Matrix(point).T*sym.Matrix(self.grav_vec))[0]
         return h*self.M_e[0,0] if h != 0 else 0
     
     def _trigsimp(self,expr):

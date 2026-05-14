@@ -10,5 +10,5 @@ from . import forces as forces
 
 # monkey patch lambdify to use common sub expression reduction
 from sympy.utilities.lambdify import _EvaluatorPrinter
-from .lambdify_extension import doprint, SymbolInterator
+from .lambdify_extension import doprint
 _EvaluatorPrinter.doprint = doprint

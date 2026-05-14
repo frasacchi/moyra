@@ -9,13 +9,6 @@ dir_path = path.dirname(path.realpath(__file__))
 with open(path.join(dir_path,'version.txt'),'r') as f:
     ver = f.read()
 
-# clean up directories
-dirs = ['.eggs','build','dist','moyra.egg-info']
-for _dir in dirs:
-    if path.exists(path.join(dir_path,_dir)):
-        shutil.rmtree(path.join(dir_path,_dir))
-
-
 
 setup(
     name='moyra',
@@ -29,8 +22,5 @@ setup(
     url='https://github.com/fh9g12/moyra',
     license='MIT',
     install_requires=['sympy','numpy','scipy'],
-    setup_requires=['pytest-runner'],
-    tests_require=['pytest==4.4.1'],
-    test_suite='tests',
 )
 
